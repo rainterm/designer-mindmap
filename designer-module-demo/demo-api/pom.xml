@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.designer</groupId>
+        <artifactId>designer-module-demo</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>demo-api</artifactId>
+    <name>demo-api</name>
+    <description>designer-module-demo 对外契约（按需 *Api；Api 自用类型）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>designer-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-security-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

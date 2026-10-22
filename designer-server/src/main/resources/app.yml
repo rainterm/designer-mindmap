@@ -1,0 +1,355 @@
+#
+# Designer Admin 脚手架 - 应用配置
+# 所有敏感项均支持环境变量 / 启动参数覆盖，例如：
+#   java -jar app.jar --solon.dataSources.db1.password=xxx
+#
+server:
+  port: 8080
+  request:
+    encoding: utf-8
+
+solon.app:
+  name: designer-server
+
+# ============================ 线程模型 ============================
+# 开启后 Solon 的并行/调度执行器使用虚拟线程（JDK 21+）：
+# 日志落库、消息发送等 I/O 旁路任务（RunUtil.asyncAndTry）不再占用平台线程。
+solon.threads.virtual.enabled: true
+
+# ============================ 配置密钥加密（可选）============================
+# 「存储配置」里的 accessKey / secretKey 与「消息通道」里的 SMTP 密码，落库前会用该主密钥
+# AES 加密成 ENC(...) 形态（实现见 framework 的 ConfigSecretUtil）。
+#   · 不配置 → 保持明文，历史数据照常读取（升级无需刷库）；
+#   · 配置后 → 只影响新写入的配置，旧明文仍能读；
+#   · 换密钥 → 已存密文解不开，读取时会打 error 日志并回退原值，务必沿用同一密钥。
+# AES 只接受 16 / 24 / 32 字节的密钥；请用环境变量注入，不要提交到仓库。
+solon.vault:
+  password: "${VAULT_PASSWORD:}"
+
+# ============================ 接口文档（Knife4j）============================
+# 访问 http://localhost:8080/doc.html；生产环境可用 KNIFE4J_ENABLE=false 关闭
+knife4j:
+  enable: "${KNIFE4J_ENABLE:true}"
+  production: "${KNIFE4J_PRODUCTION:false}"
+  setting:
+    language: "zh-CN"
+    swaggerModelName: "数据模型"
+
+# ============================ 日志 ============================
+# 使用 Solon 内置的 Logback 集成（solon-logging-logback）。
+# appender 定义在 designer-server 的 logback-solon.xml（存在该文件时 Solon 不再生成默认 appender）：
+#   CONSOLE     控制台
+#   FILE        全量文件（INFO 及以上，包含 ERROR）
+#   ERROR_FILE  error 独立文件（仅 ERROR，默认与主日志同目录，文件名加 -error 后缀）
+#   SOLON       Solon 自定义 appender 桥接（与内置默认配置保持一致）
+# XML 通过 <solonProperty> 读取下面的值，因此路径 / 级别 / 滚动策略仍在这里配置。
+# 三路输出固定启用；如需关闭某一路，把对应 level 设为 OFF。
+solon.logging.appender:
+  console:
+    level: INFO
+    pattern: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+  file:
+    # 当前日志文件为 "${LOG_PATH}.log"；滚动文件为：
+    #   ${name}_yyyy-MM-dd_序号.log
+    name: "${LOG_PATH:logs/designer-server}"
+    level: INFO
+    extension: ".log"
+    pattern: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+    # 单文件达到该大小即滚动（按大小 + 按天，同时生效）
+    maxFileSize: "10 MB"
+    # 历史日志保留天数（同时决定按天滚动的文件数量上限）
+    maxHistory: 7
+    # 历史日志总量上限，0 表示不限制
+    totalSizeCap: "1 GB"
+  error:
+    # 仅 ERROR 级别写入独立文件；默认为 "${LOG_PATH}-error.log"
+    name: "${LOG_PATH:logs/designer-server}-error"
+    level: ERROR
+    # 未显式配置时沿用 file.* 的 extension / pattern / 滚动参数，可按需单独覆盖：
+    # extension: ".log"
+    # pattern: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+    # maxFileSize: "10 MB"
+    # maxHistory: 7
+    # totalSizeCap: "1 GB"
+
+solon.logging.logger:
+  root:
+    level: INFO
+
+# ============================ 数据源（MySQL 8）============================
+# 名字 db1 与下方 mybatis.db1 对应；结尾的 ! 表示注册为默认数据源
+solon.dataSources:
+  db1!:
+    class: "com.zaxxer.hikari.HikariDataSource"
+    driverClassName: "com.mysql.cj.jdbc.Driver"
+    jdbcUrl: "jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:designer_agent}?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&nullCatalogMeansCurrent=true"
+    username: "${DB_USER:root}"
+    password: "${DB_PASSWORD:root}"
+    minimumIdle: 2
+    maximumPoolSize: 10
+    connectionTimeout: 30000
+    idleTimeout: 600000
+    maxLifetime: 1800000
+    poolName: "designer-admin-pool"
+
+# ============================ MyBatis-Plus ============================
+mybatis.db1:
+  mappers:
+    # 系统模块：mapper 按业务域拆分子包（mapper/rbac、mapper/auth ...）
+    - "com.designer.admin.system.mapper.**.*"
+    # 业务模块：同样支持 mapper 下子包（如 module.agent.mapper.agent / provider ...）
+    - "com.designer.admin.module.**.mapper.**.*"
+  configuration:
+    mapUnderscoreToCamelCase: true
+    # 开发期排查 SQL 时可打开：
+    # logImpl: "org.apache.ibatis.logging.stdout.StdOutImpl"
+  globalConfig:
+    banner: false
+    # mpj 连表注入器（必须显式声明，否则 mapper.selectJoinList 抛 Invalid bound statement）。
+    # 类全名由 mybatis-plus-join-solon-plugin 自动装配成实例。
+    sqlInjector: "com.github.yulichang.injector.MPJSqlInjector"
+    metaObjectHandler: "com.designer.admin.framework.mybatis.AutoFillHandler"
+    dbConfig:
+      idType: "auto"
+      logicDeleteField: "deleted"
+      logicDeleteValue: 1
+      logicNotDeleteValue: 0
+      whereStrategy: "not_empty"
+
+# ============================ 数据权限（行级）============================
+# 约定：
+#   1) 表里有 dept_id → 「可见部门 IN (...)」OR「本人创建的」（create_by = 当前账号）
+#   2) 表里有 create_by 但没有 dept_id → 部门维度翻译成
+#      create_by IN (SELECT username FROM sys_user WHERE dept_id IN (可见部门))
+#      即「创建人反查部门」，所以业务表**不需要**加 dept_id 字段
+#   3) 两类列都没有的表不参与
+# 新增业务表只要按约定建列，不需要改任何代码 / 配置，所有查询（含连表、子查询、
+# 分页 count、UPDATE、DELETE）自动生效。
+designer.data-permission:
+  enabled: true
+  dept-column: dept_id
+  # 归属列（创建人）。create_by 存的是用户名（VARCHAR），拦截器按列的真实类型决定拼字符串还是数字
+  owner-column: create_by
+  # 「按创建人反查部门」用到的用户表与账号列：业务表没有 dept_id 时，
+  # 部门维度翻译成 create_by IN (SELECT username FROM sys_user WHERE dept_id IN (...))，
+  # 这样业务表**不需要**加 dept_id 字段。
+  user-table: sys_user
+  username-column: username
+  # 单表覆盖：该表的这一列代表「这条数据属于谁」（sys_user 的归属就是主键，比创建人更准确）
+  owner-column-overrides:
+    sys_user: id
+  # 「创建人」维度跳过的表名前缀：框架自带的共享基础数据（字典 / 菜单 / 角色 / 配置 / 存储…）。
+  # 按创建人裁剪会让下拉框、菜单树变空；字典查询还带 @Cache，空结果会按类型缓存给所有人。
+  # 业务表约定不用 sys_ 前缀，所以默认值即可；留空按默认 sys_ 处理。
+  owner-excluded-prefixes:
+    - sys_
+  # 主键即部门 ID 的表（部门树自身）
+  dept-key-tables:
+    - sys_dept
+  # 明确排除的表
+  #   sys_oper_log / sys_login_log：全局审计，不该按人裁剪
+  #   sys_role_dept：角色可授权的部门。这张表也有 dept_id，一旦参与过滤，
+  #     修改角色数据权限时的 DELETE 会被追加 dept_id 条件，范围外的授权行删不掉，
+  #     残留成越权授权（比"看不到"严重得多）
+  ignore-tables:
+    - sys_oper_log
+    - sys_login_log
+    - sys_role_dept
+
+# ============================ Quartz 定时任务（JDBC JobStore）============================
+# 键名就是 Quartz 的原生属性名（org.quartz.*），可以对照官方文档直接改；
+# 由 ScheduleManager 读取后交给 StdSchedulerFactory，因此**不再需要 quartz.properties**。
+# 修改后需重启应用。
+#
+# 【为什么是数据库而不是内存】
+# RAMJobStore 把任务与触发器存在 JVM 内存里：重启即丢，且每个实例各存一份，
+# 多实例部署时同一任务会在每个节点各跑一遍。JDBC JobStore 把调度状态落到 QRTZ_* 表
+# （DDL 见 sql/init/mysql/system/schema.sql），节点间靠数据库行锁协调。
+#
+# 【sys_job 与 QRTZ_* 的分工】
+# sys_job 是业务定义（任务名、cron、调用目标、启停），管理界面读写它；
+# QRTZ_* 是运行时状态（下次触发时间、认领标记、节点心跳）。
+# 两者由 SysJobServiceImpl 启动时对账，不要只手工改一边。
+org.quartz:
+  scheduler:
+    # 写入 QRTZ_*.SCHED_NAME。多节点必须一致（共用同一套表）；
+    # 改动时必须同步修改 schema.sql 中 QRTZ_LOCKS 的两行 SCHED_NAME，
+    # 否则 SELECT ... FOR UPDATE 拿不到锁行，调度器启动即失败。
+    instanceName: "designerAdminScheduler"
+    # AUTO：由 Quartz 按主机名 + 时间戳生成。多节点必须各不相同，
+    # 否则集群会把两个节点当成同一实例，互相覆盖心跳与任务认领记录。
+    instanceId: "AUTO"
+
+  threadPool:
+    class: "org.quartz.simpl.SimpleThreadPool"
+    # 同时执行的任务上限。任务体若包含耗时 I/O（HTTP、邮件），不要开太小，
+    # 否则会挤占其它任务的触发时机。
+    threadCount: 10
+    threadPriority: 5
+
+  jobStore:
+    class: "org.quartz.impl.jdbcjobstore.JobStoreTX"
+    # MySQL 用标准委托（MySQLDelegate 已废弃）
+    driverDelegateClass: "org.quartz.impl.jdbcjobstore.StdJDBCDelegate"
+    # 与 schema.sql 中的表前缀一致
+    tablePrefix: "QRTZ_"
+    # JobDataMap 里存的是 JobModel 对象（非 String），必须走 Java 序列化写 BLOB。
+    # 改成 true 只支持 String 值，存取任务时会直接报错。
+    useProperties: false
+    # 指向下方 dataSource 下的名字
+    dataSource: "designerDs"
+    # 错过触发的判定阈值（毫秒）：超过该时长未触发才算 misfire，
+    # 避免线程池瞬时繁忙就触发补偿。
+    misfireThreshold: 60000
+    # 集群模式：多个应用实例共用一套 QRTZ_* 表
+    isClustered: true
+    # 节点心跳间隔（毫秒）：某节点超过该间隔未上报，其它节点会接管它未完成的任务
+    clusterCheckinInterval: 15000
+    # 触发认领必须放在数据库行锁内，否则两个节点可能同时读到同一条待触发记录，
+    # 导致同一任务被执行两次（RAMJobStore 切集群模式时最容易踩的坑）
+    acquireTriggersWithinLock: true
+    # 集群互斥锁语句。Quartz 默认用 JVM 内的 SimpleSemaphore，只保证单进程互斥；
+    # 集群模式必须换成数据库行锁，否则节点之间等于没有互斥。
+    selectWithLockSQL: "SELECT * FROM {0}LOCKS WHERE SCHED_NAME = {1} AND LOCK_NAME = ? FOR UPDATE"
+
+  dataSource:
+    designerDs:
+      # 复用 Solon 已装配的连接池，不额外建池（实现见 framework 的 SolonDataSourceConnectionProvider）。
+      # 键名是 connectionProvider.class；写成旧文档里的 .provider 会被忽略，
+      # 转而读取 driver/jdbcUrl 自建池，然后报 "Driver not specified for DataSource"。
+      connectionProvider:
+        class: "com.designer.admin.framework.job.SolonDataSourceConnectionProvider"
+
+# Quartz 复用哪个数据源：取 solon.dataSources 下的条目名（结尾的 ! 只是「默认数据源」标记，不属于名字）。
+# 多数据源时必须显式指定；单数据源时找不到会退化为按类型查找。
+designer.quartz:
+  data-source: "db1"
+
+# ============================ Redis（Sa-Token 会话存储）============================
+sa-token-dao-redis:
+  server: "${REDIS_HOST:localhost}:${REDIS_PORT:6379}"
+  password: "${REDIS_PASSWORD:123456}"
+  db: ${REDIS_DB:1}
+  maxTotal: 64
+  maxIdle: 16
+  minIdle: 2
+  maxWaitMillis: 3000
+
+# ============================ Sa-Token ============================
+sa-token:
+  # token 名称（前端以其作为请求头名，不带 Bearer 前缀）
+  token-name: "Authorization"
+  # 默认绝对有效期 1 天（秒）；实际登录以参数 sys.account.tokenTimeout 为准
+  timeout: 86400
+  # 默认活跃续期 30 分钟；有请求自动续签，连续闲置超时踢出；参数 sys.account.tokenActiveTimeout
+  active-timeout: 1800
+  # 允许登录时按参数动态指定 active-timeout
+  dynamic-active-timeout: true
+  # 鉴权时自动续签 active-timeout（默认 true）
+  auto-renew: true
+  # 允许同一账号多端并发登录
+  is-concurrent: true
+  # 每次登录都新建 token
+  is-share: false
+  token-style: "uuid"
+  # 纯 Header 模式：不读 cookie，也不从请求参数/表单读 token。
+  # 两个例外都在进入 Sa-Token 之前被提升成请求头，鉴权逻辑仍然只有一套：
+  # - 私有下载：designer_download_token Cookie → DownloadTokenCookieFilter（Path 限定为
+  #   /admin-api/system/file/download/、HttpOnly）；
+  # - 通知 SSE：?Authorization= → SseQueryTokenFilter（只匹配 /admin-api/system/notice/sse）。
+  # Sa-Token 的 is-read-body 同时覆盖 query 参数与表单：开着它，任何 /admin-api/** 都能用
+  # ?Authorization= 登录，token 会随 URL 进入访问日志、Referer 与浏览器历史；
+  # 全局读 cookie 则会让 /admin-api/** 接受 Cookie 鉴权（CSRF）。两者都必须保持 false。
+  is-read-cookie: false
+  is-read-header: true
+  is-read-body: false
+  is-log: false
+
+# ============================ 图形验证码（AJ-Captcha）============================
+# 后台登录使用这一套端点与存储（实现见
+# designer-framework 的 com.designer.admin.framework.captcha 包）。
+# 类型只有 blockPuzzle（滑块拼图）与 clickWord（文字点选）两种，没有字符型。
+#
+# 端点由插件自带的 CaptchaController 注册在根路径 /captcha/get、/captcha/check
+# （路径写死，插件没有前缀配置项）。浏览器侧统一走 /app-api/captcha/**：
+# framework 里另注册了一个薄 controller（AppCaptchaController）映射该前缀，
+# 复用同一个 CaptchaService，并直接用插件的 getRemoteId 保证 browserInfo 一致。
+# nginx 与 dev 代理都按普通 /app-api 转发，不做前缀改写；插件原生的 /captcha/** 显式 404。
+# 因此：
+#   · 公开 URL 落在 /app-api/** 下，Sa-Token 对该前缀默认免登录（正是我们需要的）；
+#   · 后端真实端点仍**不受**业务 controller 上 @RateLimit 的覆盖 —— 注解加不到该 controller 上，
+#     所以频控改由下面的 req-* 内置限流承担（它基于同一套 cache-type 计数，多实例下同样生效）；
+#   · nginx 的 /app-api/captcha/ location 只为把限流桶与普通 API 分开。
+#
+# 「要不要验」属于业务策略，不在这一层：后台看该账号连续失败是否达阈值
+# （见 system 模块的 LoginAttemptService）。
+aj:
+  captcha:
+    type: blockPuzzle
+    # 必须与 RedisCaptchaCacheServiceImpl#type() 的返回值一致，否则查不到该实现
+    cache-type: redis
+    # 画在底图上的水印
+    water-mark: "Designer Admin"
+    # 拼图块与缺口的容差（像素）：越小越难，也越容易误伤手抖的真实用户
+    slip-offset: 5
+    # true → pointJson / captchaVerification 走 AES-128-ECB 加密。
+    # 关掉会让 x 偏移变成明文，验证码退化成「约 60 次请求即可暴力试出」的摆设，故保持开启。
+    aes-status: true
+    interference-options: 1
+    # 内置频控（库默认关闭）。计数维度是请求里的 clientUid，取不到才退化成 IP+UA。
+    # 取值按后台登录的量级定（原先 @RateLimit 是 20 次/分钟，这里适度放宽）——
+    # 匿名访客大量来自运营商 NAT，同一出口 IP 后面可能是很多真人，按 IP 卡太紧会误伤。
+    # 后台登录共用这套阈值：它流量更低，且 nginx 侧另有更紧的 admin_captcha 桶兜底。
+    req-frequency-limit-enable: true
+    req-get-minute-limit: 30
+    req-get-lock-limit: 10
+    req-get-lock-seconds: 30
+    req-check-minute-limit: 60
+    req-verify-minute-limit: 60
+
+# ============================ 文件存储默认项 ============================
+designer:
+  storage:
+    # 私有文件代理下载前缀（需登录，须与 FileController /download/** 映射一致）
+    default-url-prefix: "/admin-api/system/file/download/"
+    # 公开文件代理下载前缀（免登录，须与 AppFileController /download/** 映射一致）
+    public-url-prefix: "/app-api/system/file/download/"
+    # 本地存储默认根目录（相对进程工作目录或绝对路径）
+    local-default-path: "./data/uploads"
+  agent:
+    # Solon AI Harness 工作区（影子空间 / skill 落盘）
+    workspace: "${AGENT_WORKSPACE:./data/agent-harness}"
+    # 智能体异步执行器（虚拟线程）：同时运行的 SSE / 工作流 / 索引进度任务上限
+    async:
+      max-concurrent: "${AGENT_ASYNC_MAX_CONCURRENT:64}"
+    milvus:
+      uri: "${MILVUS_URI:http://localhost:19530}"
+      token: "${MILVUS_TOKEN:}"
+      database: "${MILVUS_DATABASE:default}"
+  sso:
+    # 一次性登录票据有效期（秒）
+    ticket-ttl: 60
+  sse:
+    # 站内消息 SSE 的广播主题。
+    # 每个实例都订阅它、发送方只 publish 一次，因此多副本部署时消息能到达
+    # 浏览器实际连接的那台节点（实现见 framework 的 NoticeSseHub）。
+    #
+    # 注意：Redis Pub/Sub 的频道不区分 database index —— 共用一个 Redis 的
+    # 多套环境（dev / staging / prod）必须用不同主题名，否则会互相串消息。
+    topic: "designer:sse:notice"
+  mq:
+    # 消息总线实现（framework 的 MessageBus SPI）：
+    #   redis  Redis Pub/Sub，跨实例；默认，适合多副本部署
+    #   local  仅进程内内存投递；只用于单机部署 / 本地调试，多实例会静默丢消息
+    # 新增实现：在 framework/mq 下实现 MessageBus（type() 返回唯一标识）并标注 @Component，
+    # 无需改这里的选择逻辑；配置写错时启动会直接失败并列出可用实现。
+    type: "redis"
+  permission:
+    # 权限快照缓存存活时间（秒）。鉴权时读 Redis 的 perm:user:{userId}，命中即不查库。
+    #
+    # 正常失效靠写侧主动删键（改角色 / 改菜单 / 改用户角色时，事务提交后删），
+    # 本 TTL 只是兜底：覆盖直连改库等绕过应用的变更，以及「回源旧数据又写回缓存」
+    # 这种极窄窗口下的竞争。因此它同时也是权限撤销最坏情况的生效延迟，默认压到 10 分钟；
+    # 调大意味着省下更多数据库查询，但漏失效时旧权限存活更久。
+    # <=0 表示关闭缓存（等价于改造前行为，用于线上排查「问题在缓存还是数据库」）。
+    cache-seconds: 600

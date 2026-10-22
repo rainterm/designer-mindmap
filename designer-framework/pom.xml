@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.designer</groupId>
+        <artifactId>designer-admin</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>designer-framework</artifactId>
+    <name>designer-framework</name>
+    <description>鉴权 / ORM / 日志 / 任务 / 存储 / 消息等框架层与 SPI（禁止依赖 system）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>designer-common</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-security-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-logging-logback</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-data</artifactId>
+        </dependency>
+        <!-- 配置密钥落库加密（AES），主密钥由 solon.vault.password 提供 -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-security-vault</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-web-sse</artifactId>
+        </dependency>
+        <!-- 密码哈希（BCrypt）：Sa-Token 1.41 起不再维护加密模块 -->
+        <dependency>
+            <groupId>at.favre.lib</groupId>
+            <artifactId>bcrypt</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>redisx</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-solon-plugin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.yulichang</groupId>
+            <artifactId>mybatis-plus-join-solon-plugin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+
+        <!-- IP 归属地离线解析（数据文件 ip2region.xdb 由 designer-server 提供） -->
+        <dependency>
+            <groupId>org.lionsoul</groupId>
+            <artifactId>ip2region</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-solon-plugin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-redisx</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-snack4</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.angus</groupId>
+            <artifactId>angus-mail</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
+
+        <!-- 图形验证码：anji-plus AJ-Captcha 的 Solon 封装（版本由 solon-parent 统一管理）。
+             放在 framework 而不是某个业务模块里，是因为**所有**需要验证码的入口共用同一个
+             CaptchaService，业务侧再各自引一遍只会带来「谁负责装配」的歧义。
+             插件自带的 @Controller 把 /captcha/get、/captcha/check 注册在根路径下（路径写死、
+             不可配置）；浏览器侧统一走 /app-api/captcha/**，由本模块的 AppCaptchaController
+             映射并复用同一个 CaptchaService，插件原生路径不对外。
+             配套的 RedisCaptchaCacheServiceImpl / CaptchaVerifier 见 com.designer.admin.framework.captcha。 -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>captcha-solon-plugin</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- 接口文档注解：framework 作为公共依赖，保证各业务模块可直接使用 @Api 等注解 -->
+        <dependency>
+            <groupId>io.swagger</groupId>
+            <artifactId>swagger-annotations</artifactId>
+        </dependency>
+    </dependencies>
+</project>

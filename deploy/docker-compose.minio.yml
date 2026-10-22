@@ -1,0 +1,36 @@
+# 本地对象存储：MinIO
+# 用法：docker compose --env-file .env -p designer-admin-minio -f docker-compose.minio.yml up -d
+
+name: ${COMPOSE_PROJECT_NAME:-designer-admin}-minio
+
+services:
+  minio:
+    # Docker Hub 已下架 latest；固定可用历史版本（镜像已在本地）
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: designer-admin-minio
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - designer-minio-net
+
+volumes:
+  minio_data:
+
+networks:
+  designer-minio-net:
+    driver: bridge

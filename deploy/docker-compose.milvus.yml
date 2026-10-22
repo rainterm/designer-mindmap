@@ -1,0 +1,96 @@
+# 本地向量库：Milvus Standalone（含 etcd + 内部 MinIO）
+# 用法：./deploy-milvus.sh
+#   或 docker compose --env-file .env -p designer-admin-milvus -f docker-compose.milvus.yml up -d
+#
+# 应用连接：designer.agent.milvus.uri=http://localhost:${MILVUS_PORT:-19530}
+
+name: ${COMPOSE_PROJECT_NAME:-designer-admin}-milvus
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    container_name: designer-admin-milvus-etcd
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    volumes:
+      - milvus_etcd:/etcd
+    command: >
+      etcd
+      -advertise-client-urls=http://127.0.0.1:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 20s
+    networks:
+      - designer-milvus-net
+
+  # Milvus 专用对象存储，不映射宿主机端口，避免与 deploy MinIO 冲突
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: designer-admin-milvus-minio
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - milvus_minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 20s
+    networks:
+      - designer-milvus-net
+
+  milvus:
+    image: milvusdb/milvus:v2.5.10
+    container_name: designer-admin-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      TZ: Asia/Shanghai
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    ports:
+      - "${MILVUS_PORT:-19530}:19530"
+      - "${MILVUS_HEALTH_PORT:-9091}:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+    networks:
+      - designer-milvus-net
+
+volumes:
+  milvus_etcd:
+  milvus_minio:
+  milvus_data:
+
+networks:
+  designer-milvus-net:
+    driver: bridge

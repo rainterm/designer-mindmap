@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.designer</groupId>
+        <artifactId>designer-admin</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>designer-server</artifactId>
+    <packaging>jar</packaging>
+    <name>designer-server</name>
+    <description>启动组装模块：依赖 system + 业务模块，打 Solon 胖包</description>
+
+    <dependencies>
+        <!-- DesignerApp 直接调用 SensitiveSupport，需显式依赖（勿仅靠传递依赖） -->
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>designer-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>system-service</artifactId>
+        </dependency>
+        <!-- 二次开发：新增业务模块时在此增加 *-service dependency；注释即可禁用 -->
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>demo-service</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>agent-service</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+            <exclusions>
+                <!-- 4.x 与 Milvus SDK（GeneratedMessageV3）不兼容 -->
+                <exclusion>
+                    <groupId>com.google.protobuf</groupId>
+                    <artifactId>protobuf-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- 显式钉死 3.x，供 Milvus / gRPC 使用 -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
+        <!-- 接口文档：OpenAPI2 + Knife4j UI（访问 /doc.html） -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-openapi2-knife4j</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>designer-server</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.designer.admin.DesignerApp</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

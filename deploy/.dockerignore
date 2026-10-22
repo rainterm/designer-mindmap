@@ -1,0 +1,4 @@
+# 仅用于 docker-compose.app.yml（构建上下文为 deploy/）
+.env
+build/**/*.map
+**/.DS_Store

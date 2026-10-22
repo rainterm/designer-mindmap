@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      字体一律走系统字体（见 src/styles/index.css），不引任何 webfont。
+      fonts.googleapis.com 在国内基本加载不出来，而 <link rel="stylesheet">
+      是渲染阻塞的，浏览器要等它超时才开始首屏 —— 这是白屏时间最大的单项来源。
+    -->
+    <title>%VITE_APP_TITLE%</title>
+    <style>
+      /* 首屏静态加载动画；颜色 fallback 与 src/theme/index.js 保持一致，挂载后由 CSS 变量接管 */
+      #app-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 3000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: var(--color-body, #f2f5f3);
+        transition: opacity 0.25s ease;
+      }
+      #app-boot .boot-spinner {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 3px solid color-mix(in srgb, var(--color-primary, #16a34a) 18%, transparent);
+        border-top-color: var(--color-primary, #16a34a);
+        animation: boot-spin 0.8s linear infinite;
+      }
+      #app-boot .boot-text {
+        font-size: 13px;
+        color: var(--color-text-secondary, #5c6370);
+        letter-spacing: 1px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Microsoft YaHei', sans-serif;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="app-boot">
+      <div class="boot-spinner"></div>
+      <div class="boot-text">加载中…</div>
+    </div>
+    <script>
+      // Vue 挂载后淡出并移除首屏动画；组件层 PageLoading 会接管后续路由级加载
+      window.__removeBootLoading = function () {
+        var boot = document.getElementById('app-boot')
+        if (!boot) return
+        boot.style.opacity = '0'
+        setTimeout(function () {
+          boot.parentNode && boot.parentNode.removeChild(boot)
+        }, 260)
+      }
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Solon 会优先加载 classpath:logback-solon.xml（存在该文件时不再使用内置默认 appender 配置）。
+  这里定义四路输出：
+    CONSOLE     控制台
+    FILE        全量文件（INFO 及以上，包含 ERROR）
+    ERROR_FILE  仅 ERROR，独立文件
+    SOLON       Solon 自定义 appender 的桥接（保留内置默认行为）
+
+  路径 / 级别 / 滚动策略均从 app.yml 的 solon.logging.appender.* 读取；
+  这些值在 Solon 加载配置时已完成 ${ENV:default} 占位符解析。
+-->
+<configuration>
+
+    <!-- ==================== 从 Solon 配置映射变量 ==================== -->
+    <solonProperty name="ROOT_LOG_LEVEL" source="solon.logging.logger.root.level" defaultValue="INFO"/>
+
+    <solonProperty name="CONSOLE_LOG_LEVEL" source="solon.logging.appender.console.level" defaultValue="INFO"/>
+    <solonProperty name="CONSOLE_LOG_PATTERN" source="solon.logging.appender.console.pattern"
+                   defaultValue="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
+
+    <solonProperty name="FILE_LOG_NAME" source="solon.logging.appender.file.name"
+                   defaultValue="logs/designer-server"/>
+    <solonProperty name="FILE_LOG_LEVEL" source="solon.logging.appender.file.level" defaultValue="INFO"/>
+    <solonProperty name="FILE_LOG_EXTENSION" source="solon.logging.appender.file.extension" defaultValue=".log"/>
+    <solonProperty name="FILE_LOG_PATTERN" source="solon.logging.appender.file.pattern"
+                   defaultValue="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
+    <solonProperty name="FILE_LOG_MAX_FILE_SIZE" source="solon.logging.appender.file.maxFileSize"
+                   defaultValue="10 MB"/>
+    <solonProperty name="FILE_LOG_MAX_HISTORY" source="solon.logging.appender.file.maxHistory" defaultValue="7"/>
+    <solonProperty name="FILE_LOG_TOTAL_SIZE_CAP" source="solon.logging.appender.file.totalSizeCap"
+                   defaultValue="0"/>
+
+    <!-- error 文件未单独配置时，沿用主日志的格式与滚动参数 -->
+    <solonProperty name="ERROR_LOG_NAME" source="solon.logging.appender.error.name"
+                   defaultValue="${FILE_LOG_NAME}-error"/>
+    <solonProperty name="ERROR_LOG_LEVEL" source="solon.logging.appender.error.level" defaultValue="ERROR"/>
+    <solonProperty name="ERROR_LOG_EXTENSION" source="solon.logging.appender.error.extension"
+                   defaultValue="${FILE_LOG_EXTENSION}"/>
+    <solonProperty name="ERROR_LOG_PATTERN" source="solon.logging.appender.error.pattern"
+                   defaultValue="${FILE_LOG_PATTERN}"/>
+    <solonProperty name="ERROR_LOG_MAX_FILE_SIZE" source="solon.logging.appender.error.maxFileSize"
+                   defaultValue="${FILE_LOG_MAX_FILE_SIZE}"/>
+    <solonProperty name="ERROR_LOG_MAX_HISTORY" source="solon.logging.appender.error.maxHistory"
+                   defaultValue="${FILE_LOG_MAX_HISTORY}"/>
+    <solonProperty name="ERROR_LOG_TOTAL_SIZE_CAP" source="solon.logging.appender.error.totalSizeCap"
+                   defaultValue="${FILE_LOG_TOTAL_SIZE_CAP}"/>
+
+    <!-- ==================== 控制台 ==================== -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>${CONSOLE_LOG_LEVEL}</level>
+        </filter>
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ==================== 全量文件 ==================== -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>${FILE_LOG_LEVEL}</level>
+        </filter>
+        <file>${FILE_LOG_NAME}${FILE_LOG_EXTENSION}</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${FILE_LOG_NAME}_%d{yyyy-MM-dd}_%i${FILE_LOG_EXTENSION}</fileNamePattern>
+            <maxFileSize>${FILE_LOG_MAX_FILE_SIZE}</maxFileSize>
+            <maxHistory>${FILE_LOG_MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${FILE_LOG_TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ==================== error 独立文件（仅 ERROR） ==================== -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>${ERROR_LOG_LEVEL}</level>
+        </filter>
+        <file>${ERROR_LOG_NAME}${ERROR_LOG_EXTENSION}</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${ERROR_LOG_NAME}_%d{yyyy-MM-dd}_%i${ERROR_LOG_EXTENSION}</fileNamePattern>
+            <maxFileSize>${ERROR_LOG_MAX_FILE_SIZE}</maxFileSize>
+            <maxHistory>${ERROR_LOG_MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${ERROR_LOG_TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${ERROR_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ==================== Solon 自定义 appender 桥接 ==================== -->
+    <appender name="SOLON" class="ch.qos.logback.solon.SolonAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>TRACE</level>
+        </filter>
+    </appender>
+
+    <root level="${ROOT_LOG_LEVEL}">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="SOLON"/>
+    </root>
+
+</configuration>

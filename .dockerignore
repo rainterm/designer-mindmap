@@ -1,0 +1,13 @@
+# 构建上下文为 designer-admin/ 根目录时使用
+.git
+.idea
+**/.DS_Store
+**/node_modules
+**/dist
+**/target
+**/*.iml
+**/cp.txt
+designer-ui/admin-web/.env.development
+deploy/.env
+*.md
+!README.md

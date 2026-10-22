@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.designer</groupId>
+        <artifactId>designer-module-system</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>system-service</artifactId>
+    <name>system-service</name>
+    <description>designer-module-system 实现</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>system-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.designer</groupId>
+            <artifactId>designer-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,26 @@
+# 后端
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+cp.txt
+.cp.txt
+data/uploads/
+data/agent-harness/
+
+# 前端
+node_modules/
+dist/
+*.local
+
+# 通用
+.DS_Store
+.idea/
+.vscode/
+*.iml
+logs/
+
+# 部署密钥（保留 .env.example）
+deploy/.env
+# 本地打包后的 Docker 构建暂存目录
+deploy/build/
