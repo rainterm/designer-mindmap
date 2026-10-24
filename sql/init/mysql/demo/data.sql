@@ -4,7 +4,7 @@
 -- =====================================================================
 
 SET NAMES utf8mb4;
-USE `designer_agent`;
+USE `designer_mindmap`;
 
 INSERT INTO `sys_menu` (`id`, `parent_id`, `menu_name`, `menu_type`, `path`, `component`, `perms`, `icon`, `sort`, `visible`, `status`, `create_by`, `create_time`, `update_by`, `update_time`) VALUES
 (9000, 0,    '示例模块', 'M', '/demo',       '',            '',          'cube', 90, 1, 1, 'system', NOW(), 'system', NOW()),

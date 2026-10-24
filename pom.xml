@@ -24,6 +24,7 @@
         <module>designer-module-system</module>
         <module>designer-module-demo</module>
         <module>designer-module-agent</module>
+        <module>designer-module-mindmap</module>
         <module>designer-server</module>
     </modules>
 
@@ -90,6 +91,16 @@
             <dependency>
                 <groupId>com.designer</groupId>
                 <artifactId>agent-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.designer</groupId>
+                <artifactId>mindmap-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.designer</groupId>
+                <artifactId>mindmap-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

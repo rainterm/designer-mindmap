@@ -37,6 +37,9 @@ public class DocConfig {
     /** 智能体模块 Controller 包路径 */
     private static final String AGENT_ADMIN_PACKAGE = "com.designer.admin.module.agent.controller.admin";
 
+    /** 思维导图模块 Controller 包路径 */
+    private static final String MINDMAP_ADMIN_PACKAGE = "com.designer.admin.module.mindmap.controller.admin";
+
     /** 前台 Controller 包路径 */
     private static final String SYSTEM_APP_PACKAGE = "com.designer.admin.system.controller.app";
 
@@ -50,7 +53,7 @@ public class DocConfig {
     private static final String AGENT_OPEN_PACKAGE = "com.designer.admin.module.agent.controller.open";
 
     /**
-     * 管理端接口分组：系统管理、示例模块、智能体模块。
+     * 管理端接口分组：系统管理、示例模块、智能体模块、思维导图模块。
      *
      * @return 管理端接口文档配置
      */
@@ -59,7 +62,8 @@ public class DocConfig {
         return newDocDocket("01-管理端接口", "Designer Admin 管理端接口", "后台管理接口，除登录等白名单外均需登录并校验权限")
                 .apis(SYSTEM_ADMIN_PACKAGE)
                 .apis(DEMO_ADMIN_PACKAGE)
-                .apis(AGENT_ADMIN_PACKAGE);
+                .apis(AGENT_ADMIN_PACKAGE)
+                .apis(MINDMAP_ADMIN_PACKAGE);
     }
 
     /**

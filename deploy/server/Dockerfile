@@ -22,7 +22,7 @@ COPY build/server/designer-server.jar /app/app.jar
 ENV JAVA_OPTS="-Xms512m -Xmx1024m -Dfile.encoding=UTF-8" \
     DB_HOST=host.docker.internal \
     DB_PORT=3306 \
-    DB_NAME=designer_agent \
+    DB_NAME=designer_mindmap \
     DB_USER=root \
     DB_PASSWORD=root \
     REDIS_HOST=host.docker.internal \

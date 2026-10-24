@@ -12,7 +12,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-designer_agent}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-designer_mindmap}
       MYSQL_USER: ${MYSQL_USER:-root}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
       MYSQL_CHARSET: utf8mb4

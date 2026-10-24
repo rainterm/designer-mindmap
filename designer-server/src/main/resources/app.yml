@@ -82,7 +82,7 @@ solon.dataSources:
   db1!:
     class: "com.zaxxer.hikari.HikariDataSource"
     driverClassName: "com.mysql.cj.jdbc.Driver"
-    jdbcUrl: "jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:designer_agent}?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&nullCatalogMeansCurrent=true"
+    jdbcUrl: "jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:designer_mindmap}?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&nullCatalogMeansCurrent=true"
     username: "${DB_USER:root}"
     password: "${DB_PASSWORD:root}"
     minimumIdle: 2

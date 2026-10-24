@@ -4,7 +4,7 @@
 -- =====================================================================
 
 SET NAMES utf8mb4;
-USE `designer_agent`;
+USE `designer_mindmap`;
 
 -- ------------------------- 角色 -------------------------
 -- is_super=1 表示超级管理员；role_type=1=系统内置（不可修改/删除） 2=自定义
@@ -154,9 +154,11 @@ INSERT INTO `sys_oauth_scope` (`id`, `scope_code`, `scope_name`, `path_pattern`,
 (3, 'open.agent.chat', '智能体对话', '/open-api/agent/session/**', 3, 1, '智能体会话与消息（含 SSE）', 'system', NOW(), 'system', NOW()),
 (4, 'open.workflow', '工作流调用', '/open-api/agent/workflow/**', 4, 1, '工作流列表、详情与执行（含 SSE）', 'system', NOW(), 'system', NOW());
 
--- ------------------------- SSO 客户端（含本地接入示例 sso-demo）-------------------------
+-- ------------------------- SSO 客户端（mindmap-web :5176；sso-demo :5178）-------------------------
 INSERT INTO `sys_sso_client` (`id`, `client_name`, `client_key`, `origin`, `open_url`, `entry_path`, `sort`, `status`, `remark`, `create_by`, `create_time`, `update_by`, `update_time`) VALUES
-(1, 'SSO Demo', 'sso-demo', 'http://localhost:5176', 'http://localhost:5176', '/sso', 1, 1, '本地 SSO 接入示例（designer-ui/sso-demo）', 'system', NOW(), 'system', NOW());
+(1, '思维导图', 'mindmap', 'http://localhost:5176', 'http://localhost:5176', '/sso', 1, 1, '独立导图前端（designer-ui/mindmap-web）；生产请改成实际域名', 'system', NOW(), 'system', NOW()),
+(2, '思维导图(127)', 'mindmap127', 'http://127.0.0.1:5176', 'http://127.0.0.1:5176', '/sso', 2, 1, '本机 127.0.0.1 回跳白名单', 'system', NOW(), 'system', NOW()),
+(3, 'SSO Demo', 'sso-demo', 'http://localhost:5178', 'http://localhost:5178', '/sso', 3, 1, '本地 SSO 接入示例（designer-ui/sso-demo）', 'system', NOW(), 'system', NOW());
 
 -- ------------------------- 岗位（全局，部门通过用户关联）-------------------------
 INSERT INTO `sys_post` (`id`, `post_name`, `post_code`, `post_level`, `sort`, `status`, `remark`, `create_by`, `create_time`, `update_by`, `update_time`) VALUES

@@ -3,7 +3,7 @@
 -- =====================================================================
 
 SET NAMES utf8mb4;
-USE `designer_agent`;
+USE `designer_mindmap`;
 
 DROP TABLE IF EXISTS `agent_message`;
 DROP TABLE IF EXISTS `agent_session`;

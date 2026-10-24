@@ -6,7 +6,7 @@
 #  连接信息：环境变量优先（DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME，
 #    兼容 MYSQL_HOST / MYSQL_PORT / MYSQL_ROOT_USER / MYSQL_ROOT_PASSWORD / MYSQL_PWD / MYSQL_DATABASE）；
 #    交互终端下仅对「未提供」的项提示输入，全部已提供则不提示；非交互环境不提示。
-#  数据库名默认 designer_agent（与 designer-server/src/main/resources/app.yml 的 DB_NAME 默认值一致），可自定义。
+#  数据库名默认 designer_mindmap（与 designer-server/src/main/resources/app.yml 的 DB_NAME 默认值一致），可自定义。
 #
 #  新增业务模块：建同名目录（含 schema.sql / data.sql），并加入下方 MODULES
 # =====================================================================
@@ -16,10 +16,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # SQL 文件里写死的库名占位符（统一为 app.yml 的默认库名）
 # 执行时会被替换成实际的 DB_NAME，因此 SQL 文件本身无须感知自定义库名
-SQL_DB_PLACEHOLDER="designer_agent"
+SQL_DB_PLACEHOLDER="designer_mindmap"
 
 # 业务模块目录名（按依赖顺序；不含 _base）
-MODULES=(system demo agent)
+MODULES=(system demo agent mindmap)
 
 # ---------------------------------------------------------------------
 # 收集连接信息

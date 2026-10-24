@@ -118,13 +118,17 @@ designer-agent/
 ├── designer-common/                # 通用契约：Result / PageQuery / BaseEntity / 异常 / 工具
 ├── designer-framework/             # 鉴权、限流、日志、存储、消息、MyBatis 等基础设施
 ├── designer-module-system/         # 系统管理（用户、角色、菜单、文件、任务等）
-├── designer-module-agent/          # 智能体业务（本仓库核心）
+├── designer-module-agent/          # 智能体业务
 │   ├── agent-api/
 │   └── agent-service/
+├── designer-module-mindmap/        # 思维导图业务（本仓库核心）
+│   ├── mindmap-api/
+│   └── mindmap-service/
 ├── designer-module-demo/           # 业务模块模板
 ├── designer-server/                # 启动组装：DesignerApp + app.yml
-├── designer-ui/admin-web/          # 管理端（含 modules/agent）
-├── sql/init/mysql/                 # 按模块组织的初始化 SQL（含 agent）
+├── designer-ui/admin-web/          # 管理端
+├── designer-ui/mindmap-web/        # 思维导图独立前端（SSO，:5176）
+├── sql/init/mysql/                 # 按模块组织的初始化 SQL（含 mindmap）
 ├── deploy/                         # Docker 部署脚本（含 Milvus）
 └── docs/                           # 开发规范等文档
 ```
@@ -204,7 +208,7 @@ cd deploy
 
 连接信息在 `designer-server/src/main/resources/app.yml`，支持环境变量覆盖：
 
-- MySQL：`DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`（默认库名 `designer_agent`）
+- MySQL：`DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`（默认库名 `designer_mindmap`）
 - Redis：`REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB`
 - Milvus：`MILVUS_URI` / `MILVUS_TOKEN` / `MILVUS_DATABASE`（默认 `http://localhost:19530`）
 
@@ -226,7 +230,7 @@ cp .env.example .env
 bash sql/init/mysql/00-run-init.sh
 
 # 免交互
-DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=root DB_PASSWORD=root DB_NAME=designer_agent \
+DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=root DB_PASSWORD=root DB_NAME=designer_mindmap \
   bash sql/init/mysql/00-run-init.sh
 ```
 

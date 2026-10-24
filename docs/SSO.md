@@ -8,9 +8,9 @@
 
 以"用户访问客户端页面"为起点：
 
-1. 用户访问客户端页面（如 `http://localhost:5176`），客户端发现未登录 → 跳到后台登录页（完整地址 `http://localhost:5173/login?redirect=http://localhost:5176/sso`）
+1. 用户访问客户端页面（如 `http://localhost:5178`），客户端发现未登录 → 跳到后台登录页（完整地址 `http://localhost:5173/login?redirect=http://localhost:5178/sso`）
 2. 在后台登录（若已登录则直接跳过，无需再输密码）
-3. 后台签发一次性票据，跳回客户端：`http://localhost:5176/sso?redirect=/&ticket=xxx`
+3. 后台签发一次性票据，跳回客户端：`http://localhost:5178/sso?redirect=/&ticket=xxx`
 4. 客户端 `/sso` 页面读取 `ticket`，调 `POST /admin-api/system/auth/sso/exchange` 换回 token
 5. 客户端保存 token，进入页面（免二次登录）
 
@@ -61,7 +61,7 @@ onMounted(async () => {
 
 ### 3. 打开客户端
 
-- **客户端主动发起**：未登录时跳后台登录页 `http://localhost:5173/login?redirect=http://localhost:5176/sso`，登录成功后自动带票据跳回。
+- **客户端主动发起**：未登录时跳后台登录页 `http://localhost:5173/login?redirect=http://localhost:5178/sso`，登录成功后自动带票据跳回。
 - **从后台进入**：菜单「组件」填 `External:app1`（`External:` 后即客户端标识），保存后点击该菜单即带票据打开客户端。
 
 ## 注意

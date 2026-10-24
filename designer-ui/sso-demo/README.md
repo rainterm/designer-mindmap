@@ -15,7 +15,7 @@
 ```bash
 cd designer-ui/sso-demo
 pnpm install
-pnpm run dev      # http://localhost:5176
+pnpm run dev      # http://localhost:5178
 ```
 
 开发期通过 Vite 代理把 `/admin-api` 转发到 `http://localhost:8080`，保持同源（后端未开启 CORS）。
@@ -24,14 +24,14 @@ pnpm run dev      # http://localhost:5176
 
 ### 1. SSO 客户端
 
-初始化数据已内置该客户端（`client_key=sso-demo`、`origin=http://localhost:5176`、`entry_path=/sso`），**无需手动新增**。若换了端口/域名或未跑初始化脚本，再按「系统管理 → SSO 客户端」补字段：
+初始化数据已内置该客户端（`client_key=sso-demo`、`origin=http://localhost:5178`、`entry_path=/sso`），**无需手动新增**。若换了端口/域名或未跑初始化脚本，再按「系统管理 → SSO 客户端」补字段：
 
 | 字段 | 值 |
 |---|---|
 | 客户端名称 | SSO Demo |
 | 客户端标识 | `sso-demo`（小写、全局唯一） |
-| 允许 Origin | `http://localhost:5176` |
-| 打开地址 | `http://localhost:5176` |
+| 允许 Origin | `http://localhost:5178` |
+| 打开地址 | `http://localhost:5178` |
 | 接入路径 | `/sso` |
 | 状态 | 启用 |
 
@@ -41,14 +41,14 @@ pnpm run dev      # http://localhost:5176
 
 ## 两种进入方式
 
-- **从后台进入（推荐）**：点击上面的外部菜单 → 后台调 `sso/ticket` 签发一次性票据 → 打开 `http://localhost:5176/sso?redirect=/&ticket=xxx` → 本应用换取 token。
-- **客户端主动发起**：直接访问 `http://localhost:5176`，点「去后台登录（SSO）」→ 跳后台登录页 → 登录后后台按白名单签发票据回跳本应用 `/sso`。
+- **从后台进入（推荐）**：点击上面的外部菜单 → 后台调 `sso/ticket` 签发一次性票据 → 打开 `http://localhost:5178/sso?redirect=/&ticket=xxx` → 本应用换取 token。
+- **客户端主动发起**：直接访问 `http://localhost:5178`，点「去后台登录（SSO）」→ 跳后台登录页 → 登录后后台按白名单签发票据回跳本应用 `/sso`。
 
 ## 目录结构
 
 ```
 sso-demo/
-├── vite.config.js          # 5176 端口 + /admin-api 代理（同源）
+├── vite.config.js          # 5178 端口 + /admin-api 代理（同源）
 ├── .env                    # VITE_ADMIN_LOGIN_URL 等
 └── src/
     ├── settings.js         # apiBase / adminLoginUrl
