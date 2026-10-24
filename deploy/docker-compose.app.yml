@@ -29,8 +29,10 @@ services:
       # 接口文档开关（生产可关）
       KNIFE4J_ENABLE: ${KNIFE4J_ENABLE:-true}
       KNIFE4J_PRODUCTION: ${KNIFE4J_PRODUCTION:-false}
-      # 智能体：Harness 工作区 + Milvus（本机 deploy-milvus 时用 host.docker.internal）
+      # 智能体：Harness 工作区 + 向量库（milvus 需 deploy-milvus；redis 需 Redis Stack）
       AGENT_WORKSPACE: ${AGENT_WORKSPACE:-/app/data/agent-harness}
+      AGENT_VECTOR_TYPE: ${AGENT_VECTOR_TYPE:-redis}
+      AGENT_VECTOR_REDIS_PREFIX: ${AGENT_VECTOR_REDIS_PREFIX:-agent:kb:}
       MILVUS_URI: ${MILVUS_URI:-http://host.docker.internal:19530}
       MILVUS_TOKEN: ${MILVUS_TOKEN:-}
       MILVUS_DATABASE: ${MILVUS_DATABASE:-default}

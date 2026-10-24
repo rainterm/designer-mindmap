@@ -322,6 +322,15 @@ designer:
     # 智能体异步执行器（虚拟线程）：同时运行的 SSE / 工作流 / 索引进度任务上限
     async:
       max-concurrent: "${AGENT_ASYNC_MAX_CONCURRENT:64}"
+    # 知识库向量存储实现（AgentVectorStore SPI）：
+    #   redis   Redis Stack / RediSearch VECTOR（默认，本地 ./deploy-db.sh 即含 search）
+    #   milvus  专用向量库（大规模时改 AGENT_VECTOR_TYPE=milvus 并 ./deploy-milvus.sh）
+    # 新增实现：实现 AgentVectorStore 并标注 @Component，type() 返回唯一标识即可。
+    vector:
+      type: "${AGENT_VECTOR_TYPE:redis}"
+      redis:
+        # 分块 Hash / 辅助集合键前缀（复用 sa-token-dao-redis 连接）
+        key-prefix: "${AGENT_VECTOR_REDIS_PREFIX:agent:kb:}"
     milvus:
       uri: "${MILVUS_URI:http://localhost:19530}"
       token: "${MILVUS_TOKEN:}"

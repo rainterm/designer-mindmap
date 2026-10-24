@@ -39,15 +39,15 @@ import com.designer.admin.module.agent.model.vo.knowledge.KnowledgeChunkVO;
 import com.designer.admin.module.agent.model.vo.knowledge.KnowledgeDocVO;
 import com.designer.admin.module.agent.model.vo.knowledge.KnowledgeRetrieveTestVO;
 import com.designer.admin.module.agent.model.vo.knowledge.KnowledgeVO;
-import com.designer.admin.module.agent.service.knowledge.AgentEmbeddingClient;
+import com.designer.admin.module.agent.constant.AgentConsts;
 import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeIndexService;
 import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeRetrieveService;
 import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeService;
-import com.designer.admin.module.agent.service.knowledge.AgentMilvusStore;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveOptions;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveResult;
-import com.designer.admin.module.agent.constant.AgentConsts;
-import com.designer.admin.module.agent.service.knowledge.AgentTextChunker;
+import com.designer.admin.module.agent.service.knowledge.client.AgentEmbeddingClient;
+import com.designer.admin.module.agent.service.knowledge.support.AgentTextChunker;
+import com.designer.admin.module.agent.service.knowledge.vector.AgentVectorStore;
 import com.designer.admin.module.agent.util.AgentEntityUtil;
 import com.designer.admin.module.agent.util.AgentJsonUtil;
 import com.designer.admin.module.agent.util.AgentSseUtil;
@@ -356,9 +356,9 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
     @Override
     public List<KnowledgeChunkVO> listChunks(Long docId) {
         requireDoc(docId);
-        List<AgentMilvusStore.ChunkRow> rows = indexService.listChunks(docId);
+        List<AgentVectorStore.ChunkRow> rows = indexService.listChunks(docId);
         List<KnowledgeChunkVO> out = new ArrayList<>(rows.size());
-        for (AgentMilvusStore.ChunkRow row : rows) {
+        for (AgentVectorStore.ChunkRow row : rows) {
             out.add(toChunkVo(row));
         }
         return out;
@@ -592,7 +592,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
         return vo;
     }
 
-    private static KnowledgeChunkVO toChunkVo(AgentMilvusStore.ChunkRow row) {
+    private static KnowledgeChunkVO toChunkVo(AgentVectorStore.ChunkRow row) {
         KnowledgeChunkVO vo = new KnowledgeChunkVO();
         vo.setId(row.id());
         vo.setDocId(row.docId());

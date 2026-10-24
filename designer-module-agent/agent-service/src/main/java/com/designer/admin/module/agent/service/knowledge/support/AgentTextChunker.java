@@ -1,4 +1,4 @@
-package com.designer.admin.module.agent.service.knowledge;
+package com.designer.admin.module.agent.service.knowledge.support;
 
 import com.designer.admin.module.agent.constant.AgentConsts;
 import com.designer.admin.module.agent.constant.knowledge.ChunkStrategy;

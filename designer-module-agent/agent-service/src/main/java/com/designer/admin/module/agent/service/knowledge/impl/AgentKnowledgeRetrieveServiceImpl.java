@@ -19,13 +19,14 @@ import com.designer.admin.module.agent.mapper.provider.AgentProviderMapper;
 import com.designer.admin.module.agent.model.entity.knowledge.AgentKnowledge;
 import com.designer.admin.module.agent.model.entity.knowledge.AgentKnowledgeDoc;
 import com.designer.admin.module.agent.model.entity.provider.AgentProvider;
-import com.designer.admin.module.agent.service.knowledge.AgentEmbeddingClient;
+import com.designer.admin.module.agent.constant.AgentConsts;
 import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeRetrieveService;
-import com.designer.admin.module.agent.service.knowledge.AgentMilvusStore;
-import com.designer.admin.module.agent.service.knowledge.AgentRerankClient;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveOptions;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveResult;
-import com.designer.admin.module.agent.constant.AgentConsts;
+import com.designer.admin.module.agent.service.knowledge.client.AgentEmbeddingClient;
+import com.designer.admin.module.agent.service.knowledge.client.AgentRerankClient;
+import com.designer.admin.module.agent.service.knowledge.vector.AgentVectorStore;
+import com.designer.admin.module.agent.service.knowledge.vector.AgentVectorStoreManager;
 
 /**
  * 按 query 向量检索知识库分块，支持智能体侧 TopK / 阈值 / Embedding / Rerank。
@@ -48,7 +49,7 @@ public class AgentKnowledgeRetrieveServiceImpl implements AgentKnowledgeRetrieve
     @Inject
     private AgentRerankClient rerankClient;
     @Inject
-    private AgentMilvusStore milvusStore;
+    private AgentVectorStoreManager vectorStoreManager;
 
     @Override
     public String retrieveBlock(List<Long> knowledgeIds, String query, int maxChars) {
@@ -155,10 +156,10 @@ public class AgentKnowledgeRetrieveServiceImpl implements AgentKnowledgeRetrieve
             return List.of();
         }
         float[] qv = embeddingClient.embedOne(emb.baseUrl(), emb.apiKey(), emb.model(), query);
-        List<AgentMilvusStore.Hit> hits = milvusStore.search(kb.getId(), qv, topK, threshold);
+        List<AgentVectorStore.Hit> hits = vectorStoreManager.store().search(kb.getId(), qv, topK, threshold);
         List<ScoredChunk> out = new ArrayList<>(hits.size());
         long knowledgeId = kb.getId() == null ? 0L : kb.getId();
-        for (AgentMilvusStore.Hit h : hits) {
+        for (AgentVectorStore.Hit h : hits) {
             out.add(new ScoredChunk(kb.getName(), knowledgeId, h.docId(), "", h.chunkIndex(), h.content(), h.score()));
         }
         return out;

@@ -1,4 +1,4 @@
-package com.designer.admin.module.agent.service.knowledge;
+package com.designer.admin.module.agent.service.knowledge.support;
 
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.framework.storage.FileStorageService;

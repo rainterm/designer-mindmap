@@ -1,6 +1,7 @@
 package com.designer.admin.module.agent.service.knowledge;
 
 import com.designer.admin.module.agent.model.entity.knowledge.AgentKnowledgeDoc;
+import com.designer.admin.module.agent.service.knowledge.vector.AgentVectorStore;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -49,7 +50,7 @@ public interface AgentKnowledgeIndexService {
      * @param docId 文档 ID
      * @return 分块行列表
      */
-    List<AgentMilvusStore.ChunkRow> listChunks(Long docId);
+    List<AgentVectorStore.ChunkRow> listChunks(Long docId);
 
     /**
      * 更新指定分块文本并重写向量。
@@ -59,7 +60,7 @@ public interface AgentKnowledgeIndexService {
      * @param content    新文本内容
      * @return 更新后的分块行
      */
-    AgentMilvusStore.ChunkRow updateChunk(Long docId, int chunkIndex, String content);
+    AgentVectorStore.ChunkRow updateChunk(Long docId, int chunkIndex, String content);
 
     /**
      * 删除指定文档在向量库中的全部向量。

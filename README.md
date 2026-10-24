@@ -102,9 +102,9 @@
 | AI 运行时   | Solon AI Harness       | —       | 对话引擎、工具 / MCP / Skill 挂载         |
 | ORM         | MyBatis-Plus           | 3.5.17  | 单表 CRUD、逻辑删除、自动填充             |
 | 鉴权        | Sa-Token               | 1.46.0  | 登录会话与权限                            |
-| 向量库      | Milvus                 | 2.5.x   | 知识库向量索引与检索                      |
+| 向量库      | Redis Stack / Milvus   | — / 2.5.x | 知识库向量（默认 RediSearch；大规模可选 Milvus） |
 | 数据库      | MySQL                  | 8.0.13+ | 业务元数据（函数索引依赖 8.0.13+）        |
-| 缓存 / 会话 | Redis                  | 7       | 会话、限流、消息总线等                    |
+| 缓存 / 会话 | Redis Stack            | —       | 会话、限流、消息总线；含 RediSearch         |
 | 前端        | Vue 3 + Naive UI + Vite | 3.5 / 2.45 / 8 | 管理端（含导图与智能体）             |
 | 导图画布    | simple-mind-map        | —       | 节点编辑、导入导出                        |
 
@@ -154,7 +154,7 @@ AI 生成导图的典型路径：
 | AI ↔ 导图 | 会话上下文绑定 `mmProjectId`；工具按绑定态切换新建 / 更新 Schema       |
 | 大纲模型 | Markdown 标题层级 → 节点树 JSON，与画布 `content` 统一                 |
 | 版本发布 | 智能体 / 工作流均草稿与正式分离；发布写历史快照，可回滚覆盖草稿       |
-| RAG      | Embedding 可插拔供应商；向量存 Milvus；可选 Rerank 扩召回再截断       |
+| RAG      | Embedding 可插拔供应商；向量默认 RediSearch（可切 Milvus）；可选 Rerank |
 | 工作流   | 节点 Handler 注册表；变量与代码执行有独立 support，节点只写差异逻辑   |
 | 流式输出 | SSE 事件约定（对话：`user` / `delta` / `done` / `error`；工作流另有 `step`） |
 | 开放接入 | `/open-api/**` 走 OAuth2 Scope；公开聊天走 `public_token`，访客身份隔离 |
@@ -169,8 +169,8 @@ AI 生成导图的典型路径：
 | 脚本                                   | 作用                                                         |
 | -------------------------------------- | ------------------------------------------------------------ |
 | `install-env.sh`                       | 检查 / 安装 Docker、JDK 25、Maven、Node.js                   |
-| `deploy-db.sh`                         | 启动 MySQL + Redis（不自动建表）                             |
-| `deploy-milvus.sh`                     | 启动本地 Milvus Standalone（知识库必需）                     |
+| `deploy-db.sh`                         | 启动 MySQL + Redis Stack（含 RediSearch，不自动建表）        |
+| `deploy-milvus.sh`                     | 可选：启动本地 Milvus（`AGENT_VECTOR_TYPE=milvus` 时）       |
 | `deploy-app.sh`                        | 本地打包，构建运行镜像并启动 Server / Web                    |
 | `deploy-minio.sh`                      | 可选，本地 MinIO（S3 兼容存储）                              |
 | `stop.sh` / `restart.sh` / `logs.sh`   | 停止、重启、查看日志                                         |
@@ -196,8 +196,8 @@ AI 生成导图的典型路径：
 | Node.js | 18+（推荐 22） | 前端构建                                       |
 | pnpm    | 10.x           | 前端包管理                                     |
 | MySQL   | 8.0.13+        | 业务库                                         |
-| Redis   | 7              | 会话、缓存、限流等（**必需**）                 |
-| Milvus  | 2.5.x          | 知识库向量检索（使用 RAG 时**必需**）          |
+| Redis Stack | —          | 会话、缓存、限流 + RediSearch 向量（**必需**） |
+| Milvus  | 2.5.x          | 可选向量库（`AGENT_VECTOR_TYPE=milvus` 时）    |
 
 一键检查 / 安装环境：
 
@@ -207,21 +207,22 @@ cd deploy
 ./install-env.sh           # 按需安装（Linux 建议 sudo）
 ```
 
-### 1. 准备 MySQL、Redis 与 Milvus
+### 1. 准备 MySQL 与 Redis Stack
 
 连接信息在 `designer-server/src/main/resources/app.yml`，支持环境变量覆盖：
 
 - MySQL：`DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`（默认库名 `designer_mindmap`）
-- Redis：`REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB`
-- Milvus：`MILVUS_URI` / `MILVUS_TOKEN` / `MILVUS_DATABASE`（默认 `http://localhost:19530`）
+- Redis：`REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB`（需 Redis Stack / RediSearch）
+- 向量库：`AGENT_VECTOR_TYPE`（默认 `redis`）；切 `milvus` 时配置 `MILVUS_URI` / `MILVUS_TOKEN` / `MILVUS_DATABASE`
 
 本地可用 Docker 起依赖：
 
 ```bash
 cd deploy
 cp .env.example .env
-./deploy-db.sh        # MySQL + Redis
-./deploy-milvus.sh    # Milvus Standalone
+./deploy-db.sh        # MySQL + Redis Stack（含 RediSearch）
+# 仅当 AGENT_VECTOR_TYPE=milvus 时需要：
+# ./deploy-milvus.sh
 ```
 
 ### 2. 初始化数据库
@@ -278,7 +279,7 @@ pnpm run build
 
 ## 生产部署
 
-数据库与应用**分开部署**：本机用 JDK / Maven / Node 打包，再构建运行镜像；MySQL、Redis、Milvus 与应用容器分离。
+数据库与应用**分开部署**：本机用 JDK / Maven / Node 打包，再构建运行镜像；MySQL、Redis Stack（及可选 Milvus）与应用容器分离。
 
 ### 部署流程
 
@@ -291,22 +292,22 @@ cp .env.example .env
 vim .env
 
 ./deploy-db.sh
-./deploy-milvus.sh
+# 仅 AGENT_VECTOR_TYPE=milvus 时：./deploy-milvus.sh
 
 (cd .. && bash sql/init/mysql/00-run-init.sh)
 
 ./deploy-app.sh
 ```
 
-使用外部数据库 / 向量库时，配置 `.env` 中的 `DB_*` / `REDIS_*` / `MILVUS_*` 后执行 `./deploy-app.sh` 即可。
+使用外部数据库 / 向量库时，配置 `.env` 中的 `DB_*` / `REDIS_*`（及可选 `MILVUS_*`）后执行 `./deploy-app.sh` 即可。
 
 ### 常用命令
 
 | 命令                                 | 说明                                   |
 | ------------------------------------ | -------------------------------------- |
 | `./install-env.sh`                   | 检查并安装环境（`--check` 仅检查）     |
-| `./deploy-db.sh`                     | 启动 MySQL、Redis                      |
-| `./deploy-milvus.sh`                 | 启动本地 Milvus                        |
+| `./deploy-db.sh`                     | 启动 MySQL、Redis Stack                |
+| `./deploy-milvus.sh`                 | 可选：启动本地 Milvus                  |
 | `./deploy-minio.sh`                  | 启动本地 MinIO（可选）                 |
 | `./deploy-app.sh`                    | 本地打包并部署应用                     |
 | `./deploy-app.sh --skip-build`       | 跳过打包，复用已有产物                 |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-# 部署数据库（MySQL + Redis），不构建应用镜像
+# 部署数据库（MySQL + Redis Stack / RediSearch），不构建应用镜像
 # 用法：./deploy-db.sh [--pull]
 # =====================================================================
 set -euo pipefail
@@ -26,10 +26,10 @@ for arg in "$@"; do
       cat <<'EOF'
 用法: ./deploy-db.sh [选项]
 
-  --pull      拉取 MySQL / Redis 最新镜像
+  --pull      拉取 MySQL / Redis Stack 最新镜像
   -h, --help  显示帮助
 
-仅启动 MySQL + Redis（不会自动建表）。
+仅启动 MySQL + Redis Stack（含 RediSearch，知识库向量默认用 redis）。
 首次使用或需要重置时，请在仓库根目录手动初始化：
   bash sql/init/mysql/00-run-init.sh
 应用请另执行：./deploy-app.sh
@@ -56,7 +56,7 @@ if [[ "${MYSQL_ROOT_PASSWORD}" == "ChangeMe_Root_Passw0rd" ]] \
   warn "检测到示例密码，生产环境强烈建议修改 .env"
 fi
 
-log "启动 MySQL / Redis ..."
+log "启动 MySQL / Redis Stack（RediSearch）..."
 UP_ARGS=(up -d)
 [[ "${PULL}" -eq 1 ]] && UP_ARGS+=(--pull always)
 compose_db "${UP_ARGS[@]}"
@@ -81,6 +81,6 @@ compose_db ps
 echo
 log "数据库部署完成"
 log "  MySQL  : 127.0.0.1:${MYSQL_PORT_VAL}"
-log "  Redis  : 127.0.0.1:${REDIS_PORT_VAL}"
+log "  Redis  : 127.0.0.1:${REDIS_PORT_VAL} (Stack / RediSearch)"
 log "  建表   : 在仓库根目录执行 bash sql/init/mysql/00-run-init.sh（首次或重置时）"
 log "  下一步 : ./deploy-app.sh"

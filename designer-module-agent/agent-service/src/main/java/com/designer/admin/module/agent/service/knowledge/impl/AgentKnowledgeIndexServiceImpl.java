@@ -24,15 +24,16 @@ import com.designer.admin.module.agent.mapper.provider.AgentProviderMapper;
 import com.designer.admin.module.agent.model.entity.knowledge.AgentKnowledge;
 import com.designer.admin.module.agent.model.entity.knowledge.AgentKnowledgeDoc;
 import com.designer.admin.module.agent.model.entity.provider.AgentProvider;
-import com.designer.admin.module.agent.service.knowledge.AgentEmbeddingClient;
-import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeIndexService;
-import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeTextExtractor;
-import com.designer.admin.module.agent.service.knowledge.AgentMilvusStore;
 import com.designer.admin.module.agent.constant.AgentConsts;
-import com.designer.admin.module.agent.service.knowledge.AgentTextChunker;
+import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeIndexService;
+import com.designer.admin.module.agent.service.knowledge.client.AgentEmbeddingClient;
+import com.designer.admin.module.agent.service.knowledge.support.AgentKnowledgeTextExtractor;
+import com.designer.admin.module.agent.service.knowledge.support.AgentTextChunker;
+import com.designer.admin.module.agent.service.knowledge.vector.AgentVectorStore;
+import com.designer.admin.module.agent.service.knowledge.vector.AgentVectorStoreManager;
 
 /**
- * 文档分块 → Embedding → 写入 Milvus。
+ * 文档分块 → Embedding → 写入向量库。
  *
  * @author 雨夜终端
  */
@@ -51,7 +52,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
     @Inject
     private AgentEmbeddingClient embeddingClient;
     @Inject
-    private AgentMilvusStore milvusStore;
+    private AgentVectorStoreManager vectorStoreManager;
     @Inject
     private AgentKnowledgeTextExtractor textExtractor;
 
@@ -136,7 +137,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
             doc.setCharCount(charCount);
 
             if (content.isBlank()) {
-                milvusStore.deleteByDocId(kb.getId(), doc.getId());
+                vectorStore().deleteByDocId(kb.getId(), doc.getId());
                 doc.setChunkCount(0);
                 doc.setIndexProgress(0);
                 doc.setStatus(KnowledgeDocStatus.PENDING.getCode());
@@ -153,7 +154,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
             String strategy = AgentTextChunker.normalizeStrategy(kb.getChunkStrategy());
             List<String> chunks = AgentTextChunker.chunk(content, strategy, chunkSize, overlap);
             if (chunks.isEmpty()) {
-                milvusStore.deleteByDocId(kb.getId(), doc.getId());
+                vectorStore().deleteByDocId(kb.getId(), doc.getId());
                 doc.setChunkCount(0);
                 doc.setIndexProgress(0);
                 doc.setStatus(KnowledgeDocStatus.PENDING.getCode());
@@ -175,11 +176,11 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
             int dim = vectors.get(0).length;
             Integer lockedDim = kb.getEmbeddingDim();
             if (lockedDim != null && lockedDim > 0 && lockedDim != dim) {
-                milvusStore.dropCollection(kb.getId());
+                vectorStore().dropCollection(kb.getId());
             }
 
             markIndexing(doc, 90, "写入向量库…");
-            milvusStore.upsertChunks(kb.getId(), doc.getId(), chunks, vectors);
+            vectorStore().upsertChunks(kb.getId(), doc.getId(), chunks, vectors);
 
             if (lockedDim == null || lockedDim <= 0 || lockedDim != dim) {
                 kb.setEmbeddingDim(dim);
@@ -208,16 +209,16 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
     }
 
     @Override
-    public List<AgentMilvusStore.ChunkRow> listChunks(Long docId) {
+    public List<AgentVectorStore.ChunkRow> listChunks(Long docId) {
         AgentKnowledgeDoc doc = docMapper.selectById(docId);
         if (doc == null) {
             throw new BizException("文档不存在");
         }
-        return milvusStore.listByDocId(doc.getKnowledgeId(), doc.getId());
+        return vectorStore().listByDocId(doc.getKnowledgeId(), doc.getId());
     }
 
     @Override
-    public AgentMilvusStore.ChunkRow updateChunk(Long docId, int chunkIndex, String content) {
+    public AgentVectorStore.ChunkRow updateChunk(Long docId, int chunkIndex, String content) {
         if (content == null || content.isBlank()) {
             throw new BizException("分块内容不能为空");
         }
@@ -229,7 +230,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
         if (kb == null) {
             throw new BizException("知识库不存在");
         }
-        AgentMilvusStore.ChunkRow existing = milvusStore.getChunk(kb.getId(), doc.getId(), chunkIndex);
+        AgentVectorStore.ChunkRow existing = vectorStore().getChunk(kb.getId(), doc.getId(), chunkIndex);
         if (existing == null) {
             throw new BizException("分块不存在，请先完成索引");
         }
@@ -237,9 +238,9 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
         String text = content.trim();
         float[] vector = embeddingClient.embedOne(
                 provider.getBaseUrl(), provider.getApiKey(), kb.getEmbeddingModel(), text);
-        milvusStore.upsertChunk(kb.getId(), doc.getId(), chunkIndex, text, vector);
-        return new AgentMilvusStore.ChunkRow(
-                AgentMilvusStore.chunkId(doc.getId(), chunkIndex),
+        vectorStore().upsertChunk(kb.getId(), doc.getId(), chunkIndex, text, vector);
+        return new AgentVectorStore.ChunkRow(
+                AgentVectorStore.chunkId(doc.getId(), chunkIndex),
                 doc.getId(),
                 chunkIndex,
                 text);
@@ -248,7 +249,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
     @Override
     public void deleteDocVectors(long knowledgeId, long docId) {
         try {
-            milvusStore.deleteByDocId(knowledgeId, docId);
+            vectorStore().deleteByDocId(knowledgeId, docId);
         } catch (Exception e) {
             log.warn("删除文档向量失败 knowledgeId={} docId={}: {}", knowledgeId, docId, e.getMessage());
         }
@@ -257,7 +258,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
     @Override
     public void dropKnowledgeVectors(long knowledgeId) {
         try {
-            milvusStore.dropCollection(knowledgeId);
+            vectorStore().dropCollection(knowledgeId);
         } catch (Exception e) {
             log.warn("删除知识库向量失败 knowledgeId={}: {}", knowledgeId, e.getMessage());
         }
@@ -266,7 +267,7 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
     @Override
     public void reindexAllReady(Long knowledgeId) {
         List<AgentKnowledgeDoc> docs = readyDocs(knowledgeId);
-        milvusStore.dropCollection(knowledgeId);
+        vectorStore().dropCollection(knowledgeId);
         AgentKnowledge kb = knowledgeMapper.selectById(knowledgeId);
         if (kb != null) {
             kb.setEmbeddingDim(0);
@@ -307,6 +308,10 @@ public class AgentKnowledgeIndexServiceImpl implements AgentKnowledgeIndexServic
                 log.debug("索引进度回调失败 docId={}: {}", doc.getId(), e.getMessage());
             }
         }
+    }
+
+    private AgentVectorStore vectorStore() {
+        return vectorStoreManager.store();
     }
 
     private AgentProvider requireEmbeddingProvider(AgentKnowledge kb) {

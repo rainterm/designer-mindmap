@@ -1,4 +1,4 @@
-package com.designer.admin.module.agent.service.knowledge;
+package com.designer.admin.module.agent.service.knowledge.vector;
 
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.module.agent.constant.AgentConsts;
@@ -37,11 +37,11 @@ import java.util.Map;
  * @author 雨夜终端
  */
 @Component
-public class AgentMilvusStore {
+public class AgentMilvusStore implements AgentVectorStore {
 
     private static final Logger log = LoggerFactory.getLogger(AgentMilvusStore.class);
     private static final int CONTENT_MAX = 65535;
-    private static final long CHUNK_ID_STRIDE = 1_000_000L;
+    private static final String TYPE = "milvus";
 
     @Inject("${designer.agent.milvus.uri:http://localhost:19530}")
     private String uri;
@@ -53,22 +53,17 @@ public class AgentMilvusStore {
     private final Object lock = new Object();
     private volatile MilvusClientV2 client;
 
-    public static String collectionName(long knowledgeId) {
-        return "agent_kb_" + knowledgeId;
+    @Override
+    public String type() {
+        return TYPE;
     }
 
-    public static long chunkId(long docId, int chunkIndex) {
-        if (chunkIndex < 0 || chunkIndex >= CHUNK_ID_STRIDE) {
-            throw new BizException("分块序号超出范围: " + chunkIndex);
-        }
-        return docId * CHUNK_ID_STRIDE + chunkIndex;
-    }
-
+    @Override
     public void ensureCollection(long knowledgeId, int dim) {
         if (dim <= 0) {
             throw new BizException("向量维度无效: " + dim);
         }
-        String name = collectionName(knowledgeId);
+        String name = AgentVectorStore.indexName(knowledgeId);
         MilvusClientV2 c = client();
         Boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (Boolean.TRUE.equals(exists)) {
@@ -114,8 +109,9 @@ public class AgentMilvusStore {
         log.info("Created Milvus collection {} dim={}", name, dim);
     }
 
+    @Override
     public void dropCollection(long knowledgeId) {
-        String name = collectionName(knowledgeId);
+        String name = AgentVectorStore.indexName(knowledgeId);
         MilvusClientV2 c = client();
         Boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (!Boolean.TRUE.equals(exists)) {
@@ -125,8 +121,9 @@ public class AgentMilvusStore {
         log.info("Dropped Milvus collection {}", name);
     }
 
+    @Override
     public void deleteByDocId(long knowledgeId, long docId) {
-        String name = collectionName(knowledgeId);
+        String name = AgentVectorStore.indexName(knowledgeId);
         MilvusClientV2 c = client();
         Boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (!Boolean.TRUE.equals(exists)) {
@@ -138,8 +135,9 @@ public class AgentMilvusStore {
                 .build());
     }
 
+    @Override
     public List<ChunkRow> listByDocId(long knowledgeId, long docId) {
-        String name = collectionName(knowledgeId);
+        String name = AgentVectorStore.indexName(knowledgeId);
         MilvusClientV2 c = client();
         Boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (!Boolean.TRUE.equals(exists)) {
@@ -172,15 +170,16 @@ public class AgentMilvusStore {
         return rows;
     }
 
+    @Override
     public ChunkRow getChunk(long knowledgeId, long docId, int chunkIndex) {
-        String name = collectionName(knowledgeId);
+        String name = AgentVectorStore.indexName(knowledgeId);
         MilvusClientV2 c = client();
         Boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (!Boolean.TRUE.equals(exists)) {
             return null;
         }
         c.loadCollection(LoadCollectionReq.builder().collectionName(name).build());
-        long id = chunkId(docId, chunkIndex);
+        long id = AgentVectorStore.chunkId(docId, chunkIndex);
         QueryResp resp = c.query(QueryReq.builder()
                 .collectionName(name)
                 .filter("id == " + id)
@@ -202,7 +201,7 @@ public class AgentMilvusStore {
                 String.valueOf(entity.getOrDefault("content", "")));
     }
 
-    /** 更新单条分块（同 id upsert，保留序号）。 */
+    @Override
     public void upsertChunk(long knowledgeId, long docId, int chunkIndex, String content, float[] vector) {
         if (vector == null || vector.length == 0) {
             throw new BizException("向量为空");
@@ -213,7 +212,7 @@ public class AgentMilvusStore {
             text = text.substring(0, CONTENT_MAX);
         }
         JsonObject row = new JsonObject();
-        row.addProperty("id", chunkId(docId, chunkIndex));
+        row.addProperty("id", AgentVectorStore.chunkId(docId, chunkIndex));
         row.addProperty("doc_id", docId);
         row.addProperty("chunk_index", chunkIndex);
         row.addProperty("content", text);
@@ -223,11 +222,12 @@ public class AgentMilvusStore {
         }
         row.add("vector", arr);
         client().upsert(UpsertReq.builder()
-                .collectionName(collectionName(knowledgeId))
+                .collectionName(AgentVectorStore.indexName(knowledgeId))
                 .data(List.of(row))
                 .build());
     }
 
+    @Override
     public void upsertChunks(long knowledgeId, long docId, List<String> contents, List<float[]> vectors) {
         if (contents == null || contents.isEmpty()) {
             deleteByDocId(knowledgeId, docId);
@@ -251,7 +251,7 @@ public class AgentMilvusStore {
                 throw new BizException("向量维度不一致");
             }
             JsonObject row = new JsonObject();
-            row.addProperty("id", chunkId(docId, i));
+            row.addProperty("id", AgentVectorStore.chunkId(docId, i));
             row.addProperty("doc_id", docId);
             row.addProperty("chunk_index", i);
             row.addProperty("content", content == null ? "" : content);
@@ -263,13 +263,14 @@ public class AgentMilvusStore {
             rows.add(row);
         }
         client().upsert(UpsertReq.builder()
-                .collectionName(collectionName(knowledgeId))
+                .collectionName(AgentVectorStore.indexName(knowledgeId))
                 .data(rows)
                 .build());
     }
 
+    @Override
     public List<Hit> search(long knowledgeId, float[] queryVector, int topK, double scoreThreshold) {
-        String name = collectionName(knowledgeId);
+        String name = AgentVectorStore.indexName(knowledgeId);
         MilvusClientV2 c = client();
         Boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (!Boolean.TRUE.equals(exists)) {
@@ -356,11 +357,5 @@ public class AgentMilvusStore {
         } catch (Exception e) {
             return 0L;
         }
-    }
-
-    public record Hit(long docId, int chunkIndex, String content, float score) {
-    }
-
-    public record ChunkRow(long id, long docId, int chunkIndex, String content) {
     }
 }

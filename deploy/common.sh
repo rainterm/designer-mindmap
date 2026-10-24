@@ -34,7 +34,7 @@ need_docker() {
   fi
 }
 
-# 项目名与 compose 文件
+# 项目名与 compose 文件（Redis 为 Stack，含 RediSearch）
 compose_db() {
   local project
   project="$(env_get COMPOSE_PROJECT_NAME)"
