@@ -66,6 +66,18 @@ export const constantRoutes = [
   },
   /** 独立全屏页：新标签打开、不走后台 Layout（无侧栏/顶栏） */
   {
+    path: '/mindmap/project/edit',
+    name: 'MindmapProjectEdit',
+    component: () => import('@/modules/mindmap/views/project/edit.vue'),
+    meta: {
+      title: '导图编辑',
+      standalone: true,
+      hidden: true,
+      keepAlive: false,
+      authPerm: 'mindmap:project:edit'
+    }
+  },
+  {
     path: '/agent/workflow/edit',
     name: 'AgentWorkflowEdit',
     component: () => import('@/modules/agent/views/workflow/edit.vue'),
