@@ -33,6 +33,8 @@ import org.noear.solon.annotation.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.designer.admin.common.exception.BizException;
+import com.designer.admin.module.agent.harness.context.MmProjectChatContext;
+import com.designer.admin.module.agent.harness.tool.MmProjectFunctionTool;
 import com.designer.admin.module.agent.model.dto.session.ChatAttachmentDTO;
 import com.designer.admin.module.agent.model.dto.session.ChatStreamResult;
 import com.designer.admin.module.agent.model.dto.session.ChatToolCallDTO;
@@ -40,8 +42,11 @@ import com.designer.admin.module.agent.model.entity.agent.AgentAgent;
 import com.designer.admin.module.agent.model.entity.session.AgentSession;
 import com.designer.admin.module.agent.service.session.AgentChatHarnessAssembler;
 import com.designer.admin.module.agent.service.session.AgentChatService;
-import reactor.core.publisher.Flux;
 import com.designer.admin.module.agent.service.session.AgentChatAnswerSupport;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import com.designer.admin.module.mindmap.api.MmProjectApi;
+import com.designer.admin.module.mindmap.api.model.MmProjectBriefVO;
+import reactor.core.publisher.Flux;
 
 /**
  * 基于 Solon AI Harness 的调试对话执行。
@@ -55,9 +60,12 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final int TOOL_RESULT_LIMIT = 6000;
     private static final int THINKING_LIMIT = 100_000;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s<>\"'\\]\\)\\]]+");
+    private static final Pattern MD_HEADING = Pattern.compile("(?m)^#{1,6}\\s+\\S+");
 
     @Inject
     private AgentChatHarnessAssembler harnessAssembler;
+    @Inject
+    private MmProjectApi mmProjectApi;
 
     @Override
     public String chat(AgentSession session, AgentAgent agent, String userContent) {
@@ -101,7 +109,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         List<ToolName> toolNames = prepared.toolNames();
         List<ChatToolCallDTO> ragTools = prepared.ragTools();
         Map<String, String> toolLabels = prepared.toolLabels();
-        List<FunctionTool> wfTools = prepared.workflowTools();
+            List<FunctionTool> extraTools = prepared.extraTools() == null
+                    ? List.of()
+                    : prepared.extraTools();
 
         try {
             AgentDefinition definition = new AgentDefinition();
@@ -113,8 +123,11 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
 
             ReActAgent.Builder agentBuilder = engine.createSubagent(definition);
-            if (!wfTools.isEmpty()) {
-                agentBuilder.defaultToolAdd(wfTools);
+            if (!extraTools.isEmpty()) {
+                agentBuilder.defaultToolAdd(extraTools);
+                log.debug("已挂载自定义工具 sessionId={} tools={}",
+                        session.getId(),
+                        extraTools.stream().map(FunctionTool::name).toList());
             }
             ReActAgent react = agentBuilder.build();
             InMemoryAgentSession harnessSession = InMemoryAgentSession.of("s-" + session.getId());
@@ -122,6 +135,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             harnessAssembler.hydrateHistory(harnessSession, session.getId(), userContent, agent.getMemoryRounds());
 
             String promptText = composeUserPrompt(userContent, attachments);
+            promptText = appendMindmapBoundHint(promptText);
             ReActRequest request = buildPromptRequest(react, promptText, attachments)
                     .session(harnessSession);
             if (onDelta == null && onTool == null && onStatus == null && onThinking == null) {
@@ -132,7 +146,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                 } else {
                     out.setContent(content);
                 }
-                out.setTools(ragTools);
+                List<ChatToolCallDTO> tools = new ArrayList<>(ragTools);
+                applyMindmapSaveFallback(out, tools, onTool, onStatus);
+                out.setTools(tools);
                 return out;
             }
 
@@ -156,6 +172,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 out.setContent(cleaned);
             }
             out.setThinking(thinkingAcc.toString());
+            applyMindmapSaveFallback(out, tools, onTool, onStatus);
             out.setTools(tools);
             return out;
         } catch (BizException e) {
@@ -234,6 +251,126 @@ public class AgentChatServiceImpl implements AgentChatService {
             }
         }
         return sb.toString().trim();
+    }
+
+    /** 编辑页绑定导图时追加硬约束，避免模型只聊大纲、征求确认而不调用落库工具。 */
+    private static String appendMindmapBoundHint(String promptText) {
+        Long bound = MmProjectChatContext.getProjectId();
+        if (bound == null || bound <= 0) {
+            return promptText == null ? "" : promptText;
+        }
+        String base = promptText == null ? "" : promptText.trim();
+        String hint = "【系统约束】当前编辑导图 projectId=" + bound
+                + "。整理大纲后必须立刻调用 mm_project_save 覆盖更新（无需传 projectId），"
+                + "禁止征求确认，禁止只输出大纲而不调用工具。";
+        if (base.isEmpty()) {
+            return hint;
+        }
+        return base + "\n\n" + hint;
+    }
+
+    /**
+     * 编辑页兜底：模型未调 mm_project_save 但正文含 Markdown 标题树时，服务端直接落库并补一条工具事件（触发画布刷新）。
+     */
+    private void applyMindmapSaveFallback(ChatStreamResult out, List<ChatToolCallDTO> tools,
+                                          Consumer<ChatToolCallDTO> onTool, Consumer<String> onStatus) {
+        Long bound = MmProjectChatContext.getProjectId();
+        if (bound == null || bound <= 0 || mmProjectApi == null || out == null) {
+            return;
+        }
+        if (hasSuccessfulMindmapSave(tools)) {
+            return;
+        }
+        String outline = extractMarkdownOutline(out.getContent());
+        if (outline == null) {
+            return;
+        }
+        try {
+            emitStatus(onStatus, "正在写入思维导图…");
+            String callId = "mm-fallback-" + System.currentTimeMillis();
+            ChatToolCallDTO start = new ChatToolCallDTO();
+            start.setCallId(callId);
+            start.setPhase("start");
+            start.setToolName(MmProjectFunctionTool.CODE);
+            start.setToolLabel("保存思维导图");
+            start.setArgs(Map.of("outline", outline));
+            tools.add(start);
+            emitTool(onTool, start);
+
+            MmProjectBriefVO brief = mmProjectApi.updateFromOutline(bound, outline, null);
+            String resultJson = AgentJsonUtil.toJson(Map.of(
+                    "projectId", brief.getId(),
+                    "name", brief.getName() == null ? "" : brief.getName(),
+                    "editPath", brief.getEditPath() == null ? "" : brief.getEditPath(),
+                    "fallback", true
+            ));
+            ChatToolCallDTO end = new ChatToolCallDTO();
+            end.setCallId(callId);
+            end.setPhase("end");
+            end.setToolName(MmProjectFunctionTool.CODE);
+            end.setToolLabel("保存思维导图");
+            end.setResult(resultJson);
+            upsertTool(tools, end);
+            emitTool(onTool, end);
+            out.setContent("已根据大纲更新当前思维导图。");
+            emitStatus(onStatus, "思维导图已更新");
+            log.info("导图编辑页兜底落库成功 projectId={}", bound);
+        } catch (Exception e) {
+            log.warn("导图编辑页兜底落库失败 projectId={}", bound, e);
+        }
+    }
+
+    private static boolean hasSuccessfulMindmapSave(List<ChatToolCallDTO> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return false;
+        }
+        for (ChatToolCallDTO t : tools) {
+            if (t == null || t.getError() != null && !t.getError().isBlank()) {
+                continue;
+            }
+            if (!MmProjectFunctionTool.isMindmapToolCode(t.getToolName())) {
+                continue;
+            }
+            if ("start".equalsIgnoreCase(t.getPhase())) {
+                continue;
+            }
+            String result = t.getResult();
+            if (result != null && !result.isBlank() && !result.contains("\"ok\":false")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 正文中提取可落库的 Markdown 标题树；标题不足则返回 null。 */
+    private static String extractMarkdownOutline(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        Matcher block = Pattern.compile("(?is)```(?:markdown|md)?\\s*\\n([\\s\\S]*?)```").matcher(content);
+        while (block.find()) {
+            String body = block.group(1) == null ? "" : block.group(1).trim();
+            if (countMdHeadings(body) >= 2) {
+                return body;
+            }
+        }
+        String trimmed = content.trim();
+        if (countMdHeadings(trimmed) >= 2) {
+            return trimmed;
+        }
+        return null;
+    }
+
+    private static int countMdHeadings(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        int n = 0;
+        Matcher m = MD_HEADING.matcher(text);
+        while (m.find()) {
+            n++;
+        }
+        return n;
     }
 
     private static void handleStreamEvent(AgentEvent event, StringBuilder acc, StringBuilder thinkingAcc,

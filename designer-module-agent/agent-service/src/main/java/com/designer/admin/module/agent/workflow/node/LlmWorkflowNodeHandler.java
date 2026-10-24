@@ -1,15 +1,15 @@
 package com.designer.admin.module.agent.workflow.node;
 
 import com.designer.admin.module.agent.constant.workflow.WorkflowNodeType;
+import com.designer.admin.module.agent.model.dto.workflow.node.LlmNodeConfigDTO;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowRunResult;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.workflow.AgentWorkflowExecutor;
 import com.designer.admin.module.agent.workflow.AgentWorkflowLlmSupport;
+import com.designer.admin.module.agent.workflow.WorkflowCtxKeys;
+import org.noear.solon.Utils;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.ai.chat.ChatModel;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -21,23 +21,58 @@ import java.util.function.Consumer;
 @Component
 public class LlmWorkflowNodeHandler implements WorkflowNodeHandler {
 
+    /** 步骤思考文本最大保留字数。 */
     private static final int STEP_TEXT_LIMIT = 8000;
 
+    /** LLM 调用与流式推送支持。 */
     @Inject
     private AgentWorkflowLlmSupport llmSupport;
 
+    /**
+     * {@inheritDoc}
+     * <p>固定返回 {@link WorkflowNodeType#LLM}。
+     */
     @Override
     public WorkflowNodeType type() {
         return WorkflowNodeType.LLM;
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>提取模型、提示词、流式/思考开关及技能/工具/MCP 等试跑参数。
+     *
+     * @param configJson 节点配置 JSON
+     * @param vars       当前工作流变量表（本节点描述未做变量替换）
+     * @return 试跑 step.params 字段
+     */
+    @Override
+    public Map<String, Object> describeParams(String configJson, Map<String, String> vars) {
+        LlmNodeConfigDTO cfg = WorkflowNodeConfigs.parse(configJson, LlmNodeConfigDTO.class);
+        Map<String, Object> fallback = WorkflowNodeConfigs.rawConfigFallback(configJson, cfg);
+        if (fallback != null) {
+            return fallback;
+        }
+        normalizeForDescribe(cfg);
+        return WorkflowNodeConfigs.toParamMap(cfg);
+    }
+
+    /**
+     * 调用大模型生成文本，并按配置推送回答/思考增量、回写步骤详情。
+     *
+     * @param ctx 节点执行上下文
+     * @return 模型输出全文
+     * @throws Exception LLM 调用失败时抛出
+     */
     @Override
     public String execute(WorkflowNodeContext ctx) throws Exception {
-        Map<String, Object> cfg = parseConfig(ctx.config());
-        ChatModel fallback = ctx.resolveChatModel(AgentWorkflowExecutor.CTX_CHAT_MODEL);
-        boolean emitAnswer = boolVal(cfg.get("emitAnswer"), false);
-        boolean stream = boolVal(cfg.get("stream"), true);
-        boolean emitThinking = boolVal(cfg.get("emitThinking"), false);
+        LlmNodeConfigDTO cfg = WorkflowNodeConfigs.parse(ctx.config(), LlmNodeConfigDTO.class);
+        if (cfg == null) {
+            cfg = new LlmNodeConfigDTO();
+        }
+        ChatModel fallback = ctx.resolveChatModel(WorkflowCtxKeys.CHAT_MODEL);
+        boolean emitAnswer = Boolean.TRUE.equals(cfg.getEmitAnswer());
+        boolean stream = cfg.getStream() == null || Boolean.TRUE.equals(cfg.getStream());
+        boolean emitThinking = Boolean.TRUE.equals(cfg.getEmitThinking());
 
         Consumer<String> onToken = null;
         if (emitAnswer && stream) {
@@ -75,27 +110,35 @@ public class LlmWorkflowNodeHandler implements WorkflowNodeHandler {
         return text;
     }
 
-    private static Map<String, Object> parseConfig(String config) {
-        if (config == null || config.isBlank()) {
-            return Map.of();
+    /**
+     * 试跑面板用：补齐布尔默认值与空 userPrompt。
+     *
+     * @param cfg LLM 配置
+     */
+    private static void normalizeForDescribe(LlmNodeConfigDTO cfg) {
+        if (cfg.getEmitAnswer() == null) {
+            cfg.setEmitAnswer(false);
         }
-        return AgentJson.parseMap(config.trim());
+        if (cfg.getStream() == null) {
+            cfg.setStream(true);
+        }
+        if (cfg.getEmitThinking() == null) {
+            cfg.setEmitThinking(false);
+        }
+        if (Utils.isBlank(cfg.getSystemPrompt())) {
+            cfg.setSystemPrompt("");
+        }
+        if (Utils.isBlank(cfg.getUserPrompt())) {
+            cfg.setUserPrompt("请根据上下文给出回答。\n\n上下文：\n{output}");
+        }
     }
 
-    private static boolean boolVal(Object o, boolean def) {
-        if (o == null) {
-            return def;
-        }
-        if (o instanceof Boolean b) {
-            return b;
-        }
-        String s = String.valueOf(o).trim().toLowerCase(Locale.ROOT);
-        if (s.isEmpty()) {
-            return def;
-        }
-        return "1".equals(s) || "true".equals(s) || "yes".equals(s) || "y".equals(s);
-    }
-
+    /**
+     * 截断过长文本，避免步骤元数据过大。
+     *
+     * @param s 原始文本
+     * @return 截断后文本；null 时返回空串
+     */
     private static String truncateText(String s) {
         if (s == null) {
             return "";

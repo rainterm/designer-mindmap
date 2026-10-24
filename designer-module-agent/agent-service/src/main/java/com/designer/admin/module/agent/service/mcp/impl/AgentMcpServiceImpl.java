@@ -16,10 +16,10 @@ import com.designer.admin.module.agent.model.entity.mcp.AgentMcp;
 import com.designer.admin.module.agent.model.vo.mcp.McpVO;
 import com.designer.admin.module.agent.service.mcp.AgentMcpService;
 import com.designer.admin.module.agent.constant.AgentConsts;
-import com.designer.admin.module.agent.harness.AgentMcpClientSupport;
-import com.designer.admin.module.agent.util.AgentEntitySupport;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.harness.mcp.AgentMcpClientSupport;
+import com.designer.admin.module.agent.util.AgentEntityUtil;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import org.noear.solon.Utils;
 
 /**
  * MCP 管理
@@ -35,11 +35,11 @@ public class AgentMcpServiceImpl implements AgentMcpService {
     @Override
     public IPage<McpVO> page(McpQueryDTO query) {
         IPage<AgentMcp> page = mcpMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentMcp>()
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentMcp::getName, query.getName())
                         .or()
                         .like(AgentMcp::getCode, query.getName()))
-                .eq(AgentTexts.notBlank(query.getTransport()), AgentMcp::getTransport, query.getTransport())
+                .eq(Utils.isNotBlank(query.getTransport()), AgentMcp::getTransport, query.getTransport())
                 .eq(query.getStatus() != null, AgentMcp::getStatus, query.getStatus())
                 .orderByDesc(AgentMcp::getId));
         return page.convert(this::toVo);
@@ -87,14 +87,14 @@ public class AgentMcpServiceImpl implements AgentMcpService {
         if (ids == null || ids.isEmpty()) {
             return;
         }
-        AgentEntitySupport.deleteBatchIds(mcpMapper, ids);
+        AgentEntityUtil.deleteBatchIds(mcpMapper, ids);
     }
 
     @Override
     public McpVO probe(Long id) {
         AgentMcp row = require(id);
         List<Map<String, Object>> tools = AgentMcpClientSupport.listTools(row);
-        row.setToolsJson(AgentJson.toJson(tools));
+        row.setToolsJson(AgentJsonUtil.toJson(tools));
         mcpMapper.updateById(row);
         return toVo(mcpMapper.selectById(row.getId()));
     }
@@ -108,40 +108,40 @@ public class AgentMcpServiceImpl implements AgentMcpService {
     }
 
     private void validate(McpSaveDTO dto, Long excludeId) {
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("MCP 名称不能为空");
         }
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             throw new BizException("MCP 编码不能为空");
         }
         Long cnt = mcpMapper.selectCount(new LambdaQueryWrapper<AgentMcp>()
                 .eq(AgentMcp::getCode, dto.getCode().trim())
                 .ne(excludeId != null, AgentMcp::getId, excludeId));
-        AgentEntitySupport.assertCodeUnique(cnt, "MCP 编码已存在");
+        AgentEntityUtil.assertCodeUnique(cnt, "MCP 编码已存在");
     }
 
     private AgentMcp require(Long id) {
-        return AgentEntitySupport.require(mcpMapper.selectById(id), "MCP 不存在");
+        return AgentEntityUtil.require(mcpMapper.selectById(id), "MCP 不存在");
     }
 
     private AgentMcp toEntity(McpSaveDTO dto) {
         AgentMcp e = new AgentMcp();
         e.setId(dto.getId());
-        e.setName(AgentTexts.notBlank(dto.getName()) ? dto.getName().trim() : AgentConsts.DRAFT);
-        e.setCode(AgentTexts.notBlank(dto.getCode()) ? dto.getCode().trim() : AgentConsts.DRAFT);
-        e.setTransport(AgentTexts.notBlank(dto.getTransport()) ? dto.getTransport().trim() : McpTransportType.STDIO.getCode());
+        e.setName(Utils.isNotBlank(dto.getName()) ? dto.getName().trim() : AgentConsts.DRAFT);
+        e.setCode(Utils.isNotBlank(dto.getCode()) ? dto.getCode().trim() : AgentConsts.DRAFT);
+        e.setTransport(Utils.isNotBlank(dto.getTransport()) ? dto.getTransport().trim() : McpTransportType.STDIO.getCode());
         e.setCommand(dto.getCommand() == null ? "" : dto.getCommand());
         e.setArgs(dto.getArgs() == null ? "" : dto.getArgs());
         e.setUrl(dto.getUrl() == null ? "" : dto.getUrl());
         e.setEnvJson(dto.getEnvJson() == null ? "" : dto.getEnvJson());
-        e.setToolsJson(AgentJson.toJson(dto.getTools() == null ? List.of() : dto.getTools()));
+        e.setToolsJson(AgentJsonUtil.toJson(dto.getTools() == null ? List.of() : dto.getTools()));
         e.setStatus(dto.getStatus());
         e.setRemark(dto.getRemark() == null ? "" : dto.getRemark());
         return e;
     }
 
     private McpVO toVo(AgentMcp e) {
-        List<Map<String, Object>> tools = AgentJson.parseMapList(e.getToolsJson());
+        List<Map<String, Object>> tools = AgentJsonUtil.parseMapList(e.getToolsJson());
         McpVO vo = new McpVO();
         vo.setId(e.getId());
         vo.setName(e.getName());

@@ -2,13 +2,15 @@ package com.designer.admin.module.agent.workflow.support;
 
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.module.agent.constant.AgentConsts;
-import com.designer.admin.module.agent.util.AgentJson;
+import com.designer.admin.module.agent.model.dto.workflow.node.CodeNodeConfigDTO;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Engine;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
+import org.noear.solon.Utils;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Init;
 import org.noear.solon.core.util.RunUtil;
@@ -26,7 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.designer.admin.module.agent.workflow.support.WorkflowVarSupport.isJsonValue;
-import static com.designer.admin.module.agent.workflow.support.WorkflowVarSupport.parseCfg;
 import static com.designer.admin.module.agent.workflow.support.WorkflowVarSupport.str;
 /**
  * 工作流代码节点：JS / Python 引擎与条件表达式求值。
@@ -36,7 +37,9 @@ import static com.designer.admin.module.agent.workflow.support.WorkflowVarSuppor
 @Component
 public class WorkflowCodeEngineSupport {
 
+    /** 日志 */
     private static final Logger log = LoggerFactory.getLogger(WorkflowCodeEngineSupport.class);
+    /** 代码节点输出最大字符数 */
     private static final int CODE_OUTPUT_LIMIT = 50_000;
 
     /**
@@ -111,13 +114,18 @@ public class WorkflowCodeEngineSupport {
             + "    _val = g.get('result', g.get('output', ''))\n"
             + "_wf_out = _dump(_val)\n";
 
+    /** 懒加载的 JS ScriptEngine */
     private final AtomicReference<ScriptEngine> jsEngine = new AtomicReference<>();
     /** 共享 Engine；Context 按线程缓存，避免跨线程复用与反复创建 */
     private final AtomicReference<Engine> pythonEngine = new AtomicReference<>();
+    /** 缓存的 Python 求值 Source */
     private final AtomicReference<Source> pythonEvalSource = new AtomicReference<>();
+    /** 代码引擎是否已预热完成 */
     private final AtomicBoolean codeEnginesWarm = new AtomicBoolean(false);
 
-    /** 启动后异步预热 JS / Python，避免首次跑代码节点卡数秒 */
+    /**
+     * 启动后异步预热 JS / Python，避免首次跑代码节点卡数秒。
+     */
     @Init
     public void warmCodeEngines() {
         RunUtil.asyncAndTry(() -> {
@@ -139,10 +147,21 @@ public class WorkflowCodeEngineSupport {
         });
     }
 
+    /**
+     * 执行代码节点脚本（JS 或 Python）。
+     *
+     * @param config 节点 JSON 配置（language / script）
+     * @param vars   工作流变量表
+     * @return 脚本返回值字符串
+     * @throws Exception 引擎或脚本执行失败时抛出；业务校验为 {@link BizException}
+     */
     public String runCode(String config, Map<String, String> vars) throws Exception {
-        Map<String, Object> cfg = parseCfg(config);
-        String language = str(cfg.get("language"), "js").toLowerCase(Locale.ROOT);
-        String script = str(cfg.get("script"), "");
+        CodeNodeConfigDTO cfg = AgentJsonUtil.parse(config, CodeNodeConfigDTO.class);
+        if (cfg == null) {
+            cfg = new CodeNodeConfigDTO();
+        }
+        String language = Utils.isBlank(cfg.getLanguage()) ? "js" : cfg.getLanguage().toLowerCase(Locale.ROOT);
+        String script = cfg.getScript() == null ? "" : cfg.getScript();
         if (script.isBlank()) {
             throw new BizException("代码节点未填写脚本");
         }
@@ -168,7 +187,14 @@ public class WorkflowCodeEngineSupport {
         return String.valueOf(result);
     }
 
-    /** 条件表达式按 JavaScript 求值（JSON 字符串变量会先 parse 成对象）。 */
+    /**
+     * 条件表达式按 JavaScript 求值（JSON 字符串变量会先 parse 成对象）。
+     *
+     * @param expr 表达式；空白视为 true
+     * @param vars 工作流变量表
+     * @return 表达式是否为真
+     * @throws BizException 表达式执行失败时抛出
+     */
     public boolean evalJsCondition(String expr, Map<String, String> vars) {
         if (expr == null || expr.isBlank()) {
             return true;
@@ -185,15 +211,23 @@ public class WorkflowCodeEngineSupport {
         return jsTruthy(result);
     }
 
+    /**
+     * 使用 GraalPy 执行 Python 脚本。
+     *
+     * @param script 用户脚本
+     * @param vars   变量表
+     * @return 脚本输出字符串（可能截断）
+     * @throws BizException 执行或初始化失败时抛出
+     */
     private String runPython(String script, Map<String, String> vars) {
         ensureCodeEnginesWarm();
         try (Context context = openPythonContext()) {
             Value bindings = context.getBindings("python");
-            String varsJson = AgentJson.toJson(vars == null ? Map.of() : vars);
+            String varsJson = AgentJsonUtil.toJson(vars == null ? Map.of() : vars);
             context.eval(Source.create("python",
                     "import json\n"
-                            + "__wf_vars__ = json.loads(" + AgentJson.toJson(varsJson) + ")\n"
-                            + "__wf_script__ = " + AgentJson.toJson(script) + "\n"));
+                            + "__wf_vars__ = json.loads(" + AgentJsonUtil.toJson(varsJson) + ")\n"
+                            + "__wf_script__ = " + AgentJsonUtil.toJson(script) + "\n"));
             context.eval(resolvePythonEvalSource());
             Value out = bindings.hasMember("_wf_out") ? bindings.getMember("_wf_out") : null;
             String text = (out == null || out.isNull()) ? "" : out.asString();
@@ -211,7 +245,11 @@ public class WorkflowCodeEngineSupport {
         }
     }
 
-    /** 若启动预热未完成，则同步完成一次，避免首请求再卡一轮 */
+    /**
+     * 若启动预热未完成，则同步完成一次，避免首请求再卡一轮。
+     *
+     * @throws BizException GraalPy 初始化失败时抛出
+     */
     private void ensureCodeEnginesWarm() {
         if (codeEnginesWarm.get()) {
             return;
@@ -232,6 +270,12 @@ public class WorkflowCodeEngineSupport {
     }
 
 
+    /**
+     * 打开新的 Python Context（调用方负责关闭）。
+     *
+     * @return Polyglot Context
+     * @throws BizException 无法加载 GraalPy 时抛出
+     */
     private Context openPythonContext() {
         try {
             return Context.newBuilder("python")
@@ -245,6 +289,12 @@ public class WorkflowCodeEngineSupport {
         }
     }
 
+    /**
+     * 懒加载并缓存 Python 求值 Source。
+     *
+     * @return Source
+     * @throws BizException 源初始化失败时抛出
+     */
     private Source resolvePythonEvalSource() {
         Source cached = pythonEvalSource.get();
         if (cached != null) {
@@ -263,6 +313,12 @@ public class WorkflowCodeEngineSupport {
         }
     }
 
+    /**
+     * 懒加载并缓存共享 Python Engine。
+     *
+     * @return Engine
+     * @throws BizException 无法加载时抛出
+     */
     private Engine resolvePythonEngine() {
         Engine cached = pythonEngine.get();
         if (cached != null) {
@@ -282,7 +338,15 @@ public class WorkflowCodeEngineSupport {
         }
     }
 
-    /** 顶层 return 非法，包一层函数后再执行；无 return 的脚本仍按表达式求值 */
+    /**
+     * 顶层 return 非法，包一层函数后再执行；无 return 的脚本仍按表达式求值。
+     *
+     * @param engine   JS 引擎
+     * @param bindings 变量绑定
+     * @param script   用户脚本
+     * @return 求值结果
+     * @throws ScriptException 脚本错误时抛出
+     */
     private static Object evalJs(ScriptEngine engine, Bindings bindings, String script) throws ScriptException {
         try {
             return engine.eval(script, bindings);
@@ -295,6 +359,12 @@ public class WorkflowCodeEngineSupport {
         }
     }
 
+    /**
+     * 懒加载 JS ScriptEngine（javascript / js / nashorn）。
+     *
+     * @return ScriptEngine
+     * @throws BizException 无可用引擎时抛出
+     */
     private ScriptEngine resolveJsEngine() {
         ScriptEngine cached = jsEngine.get();
         if (cached != null) {
@@ -315,6 +385,13 @@ public class WorkflowCodeEngineSupport {
         return jsEngine.get();
     }
 
+    /**
+     * 将工作流变量注入 JS Bindings，JSON 字符串额外 parse 为对象，并设置 obj。
+     *
+     * @param engine   JS 引擎
+     * @param bindings 绑定表
+     * @param vars     变量表
+     */
     private void bindWorkflowJsVars(ScriptEngine engine, Bindings bindings, Map<String, String> vars) {
         String outputStr = "";
         if (vars != null) {
@@ -339,21 +416,36 @@ public class WorkflowCodeEngineSupport {
         bindJsonObj(engine, bindings, outputStr);
     }
 
+    /**
+     * 若 value 为 JSON，则 parse 后覆盖同名绑定。
+     *
+     * @param engine   JS 引擎
+     * @param bindings 绑定表
+     * @param key      变量名
+     * @param value    原始字符串值
+     */
     private void putJsonBinding(ScriptEngine engine, Bindings bindings, String key, String value) {
         if (key == null || !isJsonValue(value)) {
             return;
         }
         try {
-            bindings.put(key, engine.eval("JSON.parse(" + AgentJson.toJson(value) + ")"));
+            bindings.put(key, engine.eval("JSON.parse(" + AgentJsonUtil.toJson(value) + ")"));
         } catch (Exception e) {
             log.debug("工作流 JS 变量 JSON 解析失败 key={}", key, e);
         }
     }
 
+    /**
+     * 将 output 解析为 JS {@code obj}（非 JSON 时为 null）。
+     *
+     * @param engine   JS 引擎
+     * @param bindings 绑定表
+     * @param output   流水线输出文本
+     */
     private void bindJsonObj(ScriptEngine engine, Bindings bindings, String output) {
         try {
             if (isJsonValue(output)) {
-                bindings.put("obj", engine.eval("JSON.parse(" + AgentJson.toJson(output) + ")"));
+                bindings.put("obj", engine.eval("JSON.parse(" + AgentJsonUtil.toJson(output) + ")"));
             } else {
                 bindings.put("obj", null);
             }
@@ -363,6 +455,12 @@ public class WorkflowCodeEngineSupport {
         }
     }
 
+    /**
+     * 按 JS 语义判断真值。
+     *
+     * @param r 求值结果
+     * @return 是否为真
+     */
     private static boolean jsTruthy(Object r) {
         if (r == null) {
             return false;

@@ -95,6 +95,9 @@ INSERT INTO `agent_mcp` (`id`, `name`, `code`, `transport`, `command`, `args`, `
 INSERT INTO `agent_skill` (`id`, `name`, `code`, `description`, `content`, `source_type`, `package_name`, `package_size`, `files_json`, `skill_path`, `status`, `create_by`, `create_time`, `update_by`, `update_time`) VALUES
 (1, '写作润色', 'writing-polish', '中文写作润色与改写：通顺、简洁、语气得体',
  '---\nname: writing-polish\ndescription: 中文写作润色与改写\n---\n\n# 写作润色\n\n当用户需要润色、改写或提炼文案时使用本 Skill。\n\n## 原则\n\n1. 保留原意，不臆造事实\n2. 句子通顺简洁，避免套话\n3. 按用户指定语气调整（正式 / 轻松 / 对外客服等）\n4. 先给出改写结果，再可选说明改动要点\n',
+ 'manual', '', 0, NULL, '', 1, 'system', NOW(), 'system', NOW()),
+(2, '思维导图大纲', 'mindmap-outline', '将主题整理为 Markdown 标题大纲，并调用导图工具落库',
+ '---\nname: mindmap-outline\ndescription: 思维导图大纲整理与落库\n---\n\n# 思维导图大纲\n\n当用户要求生成、扩展或改写思维导图时使用本 Skill。\n\n## 步骤\n\n1. 理解用户主题，整理为 Markdown 标题层级：\n   - `#` 中心主题（仅一个）\n   - `##` 一级分支\n   - `###` 二级分支（可继续更深）\n2. 调用工具 `mm_project_save` 落库：传 projectId 则更新，否则新建（新建需 name + outline）\n3. 用一两句中文说明结果，不要输出 HTML\n\n## 注意\n\n- outline 必须是完整标题树，不要只给散文\n- 名称简洁，能概括主题即可\n',
  'manual', '', 0, NULL, '', 1, 'system', NOW(), 'system', NOW());
 
 -- ------------------------- 知识库 + 文档 -------------------------
@@ -172,6 +175,14 @@ INSERT INTO `agent_agent` (
  NULL, '', NULL, '', 5, 0.3500, 0, 1, '演示：挂载国内天气 MCP（中国天气网，无需 Key）',
  1, 1,
  '{"id":5,"name":"天气助手","code":"demo-weather","avatar":"","systemPrompt":"你是天气助手。查询气温、预报时优先调用天气 MCP 工具（中国天气网），用中文简洁回答，并注明地点与数据时间。","providerId":1,"modelCode":"deepseek-flash","temperature":0.5,"topP":1.0,"maxTokens":0,"memoryRounds":6,"toolIds":[],"mcpIds":[1],"skillIds":[],"workflowIds":[],"knowledgeIds":[],"embeddingProviderId":null,"embeddingModel":"","rerankProviderId":null,"rerankModel":"","ragTopK":5,"ragScoreThreshold":0.35,"fileEnabled":0,"status":1,"remark":"演示：挂载国内天气 MCP（中国天气网，无需 Key）"}',
+ 'system', NOW(), 'system', NOW()),
+(6, '导图助手', 'mindmap', '',
+ '你是思维导图助手。先把用户主题整理成 Markdown 标题大纲（# / ## / ###），再调用 mm_project_save 落库（有 projectId 则更新，否则新建）；成功后用中文简要说明，并提示可打开编辑页。不要输出 HTML。',
+ 1, 'deepseek-flash', 0.6000, 1.0000, 0, 8,
+ '[5]', '[]', '[2]', '[]', '[]',
+ NULL, '', NULL, '', 5, 0.3500, 0, 1, '对话生成 / 更新思维导图',
+ 1, 1,
+ '{"id":6,"name":"导图助手","code":"mindmap","avatar":"","systemPrompt":"你是思维导图助手。先把用户主题整理成 Markdown 标题大纲（# / ## / ###），再调用 mm_project_save 落库（有 projectId 则更新，否则新建）；成功后用中文简要说明，并提示可打开编辑页。不要输出 HTML。","providerId":1,"modelCode":"deepseek-flash","temperature":0.6,"topP":1.0,"maxTokens":0,"memoryRounds":8,"toolIds":[5],"mcpIds":[],"skillIds":[2],"workflowIds":[],"knowledgeIds":[],"embeddingProviderId":null,"embeddingModel":"","rerankProviderId":null,"rerankModel":"","ragTopK":5,"ragScoreThreshold":0.35,"fileEnabled":0,"status":1,"remark":"对话生成 / 更新思维导图"}',
  'system', NOW(), 'system', NOW());
 
 INSERT INTO `agent_agent_version` (`id`, `agent_id`, `version`, `config_json`, `name`, `code`, `status`, `remark`, `published_by`, `published_at`, `create_by`, `create_time`, `update_by`, `update_time`) VALUES
@@ -189,4 +200,7 @@ INSERT INTO `agent_agent_version` (`id`, `agent_id`, `version`, `config_json`, `
  '流程助手', 'demo-flow', 1, '演示：挂载回声示例工作流', 'system', NOW(), 'system', NOW(), 'system', NOW()),
 (5, 5, 1,
  '{"id":5,"name":"天气助手","code":"demo-weather","avatar":"","systemPrompt":"你是天气助手。查询气温、预报时优先调用天气 MCP 工具（中国天气网），用中文简洁回答，并注明地点与数据时间。","providerId":1,"modelCode":"deepseek-flash","temperature":0.5,"topP":1.0,"maxTokens":0,"memoryRounds":6,"toolIds":[],"mcpIds":[1],"skillIds":[],"workflowIds":[],"knowledgeIds":[],"embeddingProviderId":null,"embeddingModel":"","rerankProviderId":null,"rerankModel":"","ragTopK":5,"ragScoreThreshold":0.35,"fileEnabled":0,"status":1,"remark":"演示：挂载国内天气 MCP（中国天气网，无需 Key）"}',
- '天气助手', 'demo-weather', 1, '演示：挂载国内天气 MCP（中国天气网，无需 Key）', 'system', NOW(), 'system', NOW(), 'system', NOW());
+ '天气助手', 'demo-weather', 1, '演示：挂载国内天气 MCP（中国天气网，无需 Key）', 'system', NOW(), 'system', NOW(), 'system', NOW()),
+(6, 6, 1,
+ '{"id":6,"name":"导图助手","code":"mindmap","avatar":"","systemPrompt":"你是思维导图助手。先把用户主题整理成 Markdown 标题大纲（# / ## / ###），再调用 mm_project_save 落库（有 projectId 则更新，否则新建）；成功后用中文简要说明，并提示可打开编辑页。不要输出 HTML。","providerId":1,"modelCode":"deepseek-flash","temperature":0.6,"topP":1.0,"maxTokens":0,"memoryRounds":8,"toolIds":[5],"mcpIds":[],"skillIds":[2],"workflowIds":[],"knowledgeIds":[],"embeddingProviderId":null,"embeddingModel":"","rerankProviderId":null,"rerankModel":"","ragTopK":5,"ragScoreThreshold":0.35,"fileEnabled":0,"status":1,"remark":"对话生成 / 更新思维导图"}',
+ '导图助手', 'mindmap', 1, '对话生成 / 更新思维导图', 'system', NOW(), 'system', NOW(), 'system', NOW());

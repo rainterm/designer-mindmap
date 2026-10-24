@@ -2,7 +2,7 @@ package com.designer.admin.module.agent.service.knowledge;
 
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.module.agent.service.provider.adapter.ModelListHttpSupport;
-import com.designer.admin.module.agent.util.AgentJson;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
 import org.noear.snack4.ONode;
 import org.noear.solon.annotation.Component;
 import org.slf4j.Logger;
@@ -105,8 +105,8 @@ public class AgentRerankClient {
 
     private static List<Candidate> buildCandidates(String baseUrl, String model, String query,
                                                    List<String> documents, int topN) {
-        String openAiBody = AgentJson.toJson(openAiPayload(model, query, documents, topN));
-        String dashBody = AgentJson.toJson(dashScopePayload(model, query, documents, topN));
+        String openAiBody = AgentJsonUtil.toJson(openAiPayload(model, query, documents, topN));
+        String dashBody = AgentJsonUtil.toJson(dashScopePayload(model, query, documents, topN));
         List<String> urls = resolveCandidateUrls(baseUrl, model);
         List<Candidate> out = new ArrayList<>();
         for (String url : urls) {

@@ -73,6 +73,7 @@
             />
             <n-space>
               <n-button @click="handleSearch">查询</n-button>
+              <n-button :loading="aiOpening" @click="handleAiGenerate">AI 生成</n-button>
               <n-button
                 v-if="userStore.hasPerm('mindmap:project:add')"
                 type="primary"
@@ -205,11 +206,30 @@ import {
   sumTotalCount,
   toSelectOptions
 } from '@/modules/mindmap/utils/categoryTree'
+import { openMindmapAgentSession } from '@/modules/mindmap/utils/openMindmapAgent'
 
 const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const userStore = useUserStore()
+const aiOpening = ref(false)
+
+async function handleAiGenerate() {
+  if (aiOpening.value) return
+  aiOpening.value = true
+  try {
+    const { sessionId } = await openMindmapAgentSession()
+    const { href } = router.resolve({
+      path: '/agent/session/chat',
+      query: { id: sessionId }
+    })
+    window.open(href, '_blank', 'noopener,noreferrer')
+  } catch (e) {
+    message.error(e?.message || '打开 AI 对话失败')
+  } finally {
+    aiOpening.value = false
+  }
+}
 
 /** 'all' | 'none' | number */
 const activeCategory = ref('all')

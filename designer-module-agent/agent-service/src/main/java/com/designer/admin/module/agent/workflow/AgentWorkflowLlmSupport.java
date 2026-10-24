@@ -2,14 +2,15 @@ package com.designer.admin.module.agent.workflow;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.designer.admin.common.exception.BizException;
-import com.designer.admin.module.agent.harness.AgentChatConfigFactory;
-import com.designer.admin.module.agent.harness.AgentMcpClientSupport;
-import com.designer.admin.module.agent.harness.AgentSkillMountSupport;
-import com.designer.admin.module.agent.harness.AgentToolMapping;
+import com.designer.admin.module.agent.harness.config.AgentChatConfigFactory;
+import com.designer.admin.module.agent.harness.mcp.AgentMcpClientSupport;
+import com.designer.admin.module.agent.harness.skill.AgentSkillMountSupport;
+import com.designer.admin.module.agent.harness.tool.AgentToolMapping;
 import com.designer.admin.module.agent.mapper.mcp.AgentMcpMapper;
 import com.designer.admin.module.agent.mapper.provider.AgentProviderMapper;
 import com.designer.admin.module.agent.mapper.skill.AgentSkillMapper;
 import com.designer.admin.module.agent.mapper.tool.AgentToolMapper;
+import com.designer.admin.module.agent.model.dto.workflow.node.LlmNodeConfigDTO;
 import com.designer.admin.module.agent.model.entity.mcp.AgentMcp;
 import com.designer.admin.module.agent.model.entity.provider.AgentProvider;
 import com.designer.admin.module.agent.model.entity.skill.AgentSkill;
@@ -37,7 +38,6 @@ import reactor.core.publisher.Flux;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +45,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import com.designer.admin.common.constant.SystemConsts;
 import com.designer.admin.module.agent.workflow.support.WorkflowVarSupport;
+
 /**
  * 工作流 LLM 节点：按节点配置解析模型，并挂载 Skill / 工具 / MCP。
  *
@@ -53,33 +54,56 @@ import com.designer.admin.module.agent.workflow.support.WorkflowVarSupport;
 @Component
 public class AgentWorkflowLlmSupport {
 
+    /** 日志 */
     private static final Logger log = LoggerFactory.getLogger(AgentWorkflowLlmSupport.class);
 
+    /** 模型供应商 Mapper */
     @Db
     private AgentProviderMapper providerMapper;
+    /** Skill Mapper */
     @Db
     private AgentSkillMapper skillMapper;
+    /** 内置工具 Mapper */
     @Db
     private AgentToolMapper toolMapper;
+    /** MCP Mapper */
     @Db
     private AgentMcpMapper mcpMapper;
+    /** Harness 工作目录（Skill 挂载等） */
     @Inject("${designer.agent.workspace:./data/agent-harness}")
     private String workspace;
 
-    public String run(Map<String, Object> cfg, Map<String, String> vars, ChatModel fallbackModel) throws Exception {
+    /**
+     * 同步调用 LLM 节点（无流式回调）。
+     *
+     * @param cfg           节点配置
+     * @param vars          工作流变量表
+     * @param fallbackModel 节点未配置模型时的回退 ChatModel
+     * @return 模型正文
+     * @throws Exception 调用或配置失败时抛出
+     */
+    public String run(LlmNodeConfigDTO cfg, Map<String, String> vars, ChatModel fallbackModel) throws Exception {
         return run(cfg, vars, fallbackModel, null, null, null);
     }
 
     /**
-     * @param onToken     非空时消费正文增量
-     * @param onThinking  非空时消费思考增量
-     * @param thinkingOut 非空时写入完整思考文本
+     * 执行 LLM 节点；可带流式正文 / 思考回调。
+     *
+     * @param cfg           节点配置
+     * @param vars          工作流变量表
+     * @param fallbackModel 节点未配置模型时的回退 ChatModel
+     * @param onToken       非空时消费正文增量
+     * @param onThinking    非空时消费思考增量
+     * @param thinkingOut   非空时写入完整思考文本
+     * @return 模型正文
+     * @throws Exception 调用或配置失败时抛出
      */
-    public String run(Map<String, Object> cfg, Map<String, String> vars, ChatModel fallbackModel,
+    public String run(LlmNodeConfigDTO cfg, Map<String, String> vars, ChatModel fallbackModel,
                       Consumer<String> onToken, Consumer<String> onThinking, StringBuilder thinkingOut)
             throws Exception {
         try {
-            return doRun(cfg, vars, fallbackModel, onToken, onThinking, thinkingOut);
+            return doRun(cfg == null ? new LlmNodeConfigDTO() : cfg, vars, fallbackModel,
+                    onToken, onThinking, thinkingOut);
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
@@ -93,15 +117,24 @@ public class AgentWorkflowLlmSupport {
         }
     }
 
-    private String doRun(Map<String, Object> cfg, Map<String, String> vars, ChatModel fallbackModel,
+    /**
+     * LLM 节点实际执行：解析 Skill/工具/MCP，走 Harness 或直连 ChatModel。
+     *
+     * @param cfg           节点配置
+     * @param vars          变量表
+     * @param fallbackModel 回退模型
+     * @param onToken       正文增量回调
+     * @param onThinking    思考增量回调
+     * @param thinkingOut   思考全文缓冲
+     * @return 模型正文
+     * @throws Throwable 底层 call/stream 声明的受检/非受检异常
+     */
+    private String doRun(LlmNodeConfigDTO cfg, Map<String, String> vars, ChatModel fallbackModel,
                          Consumer<String> onToken, Consumer<String> onThinking, StringBuilder thinkingOut)
             throws Throwable {
-        if (cfg == null) {
-            cfg = Map.of();
-        }
-        List<String> skillCodes = stringList(cfg.get("skillCodes"));
-        List<String> toolCodes = stringList(cfg.get("toolCodes"));
-        List<String> mcpCodes = stringList(cfg.get("mcpCodes"));
+        List<String> skillCodes = normalizeCodes(cfg.getSkillCodes());
+        List<String> toolCodes = normalizeCodes(cfg.getToolCodes());
+        List<String> mcpCodes = normalizeCodes(cfg.getMcpCodes());
 
         List<AgentSkill> skills = loadSkillsByCodes(skillCodes);
         List<AgentMcp> mcps = loadMcpsByCodes(mcpCodes);
@@ -114,8 +147,8 @@ public class AgentWorkflowLlmSupport {
             toolNames.add(ToolName.TOOL_SKILL);
         }
 
-        String systemTpl = str(cfg.get("systemPrompt"));
-        String userTpl = str(cfg.get("userPrompt"));
+        String systemTpl = cfg.getSystemPrompt() == null ? "" : cfg.getSystemPrompt();
+        String userTpl = cfg.getUserPrompt() == null ? "" : cfg.getUserPrompt();
         if (userTpl.isBlank()) {
             userTpl = "请根据上下文给出回答。\n\n上下文：\n{output}";
         }
@@ -138,7 +171,8 @@ public class AgentWorkflowLlmSupport {
             if (chatConfig == null) {
                 throw new BizException("使用工具/MCP 时，请在 LLM 节点选择供应商与模型");
             }
-            return runWithHarness(chatConfig, str(cfg.get("modelCode")).trim(), systemPrompt, userPrompt,
+            String modelCode = cfg.getModelCode() == null ? "" : cfg.getModelCode().trim();
+            return runWithHarness(chatConfig, modelCode, systemPrompt, userPrompt,
                     skills, toolNames, mcps, onToken, onThinking, thinkingOut, stream);
         }
 
@@ -164,6 +198,15 @@ public class AgentWorkflowLlmSupport {
         return collectChatStream(req.stream(), onToken, onThinking, thinkingOut);
     }
 
+    /**
+     * 消费 ChatModel 流式事件，累积正文并分发思考增量。
+     *
+     * @param flux        事件流
+     * @param onToken     正文增量回调
+     * @param onThinking  思考增量回调
+     * @param thinkingOut 思考全文缓冲
+     * @return 累积正文
+     */
     private static String collectChatStream(Flux<ChatEvent> flux, Consumer<String> onToken,
                                             Consumer<String> onThinking, StringBuilder thinkingOut) {
         StringBuilder acc = new StringBuilder();
@@ -194,6 +237,23 @@ public class AgentWorkflowLlmSupport {
         return acc.toString();
     }
 
+    /**
+     * 通过 Harness + ReAct 执行（挂载 Skill / 工具 / MCP）。
+     *
+     * @param chatConfig   模型配置
+     * @param modelCode    模型 code
+     * @param systemPrompt 系统提示
+     * @param userPrompt   用户提示
+     * @param skills       已加载 Skill
+     * @param toolNames    工具名列表
+     * @param mcps         MCP 列表
+     * @param onToken      正文增量回调
+     * @param onThinking   思考增量回调
+     * @param thinkingOut  思考全文缓冲
+     * @param stream       是否流式
+     * @return 模型正文
+     * @throws Throwable Harness / ReAct 调用异常
+     */
     private String runWithHarness(ChatConfig chatConfig, String modelCode, String systemPrompt, String userPrompt,
                                   List<AgentSkill> skills, List<ToolName> toolNames, List<AgentMcp> mcps,
                                   Consumer<String> onToken, Consumer<String> onThinking,
@@ -273,9 +333,16 @@ public class AgentWorkflowLlmSupport {
         return acc.isEmpty() ? "（模型未返回文本内容）" : acc.toString();
     }
 
-    private ChatConfig resolveChatConfig(Map<String, Object> cfg) {
-        Long providerId = longVal(cfg.get("providerId"));
-        String modelCode = str(cfg.get("modelCode")).trim();
+    /**
+     * 按节点配置的 providerId / modelCode 构建 ChatConfig；未配置时返回 null。
+     *
+     * @param cfg 节点配置
+     * @return ChatConfig；未配置供应商或模型时 null
+     * @throws BizException 供应商不可用时抛出
+     */
+    private ChatConfig resolveChatConfig(LlmNodeConfigDTO cfg) {
+        Long providerId = cfg.getProviderId();
+        String modelCode = cfg.getModelCode() == null ? "" : cfg.getModelCode().trim();
         if (providerId == null || modelCode.isBlank()) {
             return null;
         }
@@ -285,21 +352,24 @@ public class AgentWorkflowLlmSupport {
         }
         ChatConfig chatConfig = AgentChatConfigFactory.fromProvider(
                 provider.getType(), provider.getBaseUrl(), provider.getApiKey(), modelCode);
-        Double temperature = doubleVal(cfg.get("temperature"));
-        if (temperature != null) {
-            chatConfig.addDefaultOption("temperature", temperature);
+        if (cfg.getTemperature() != null) {
+            chatConfig.addDefaultOption("temperature", cfg.getTemperature());
         }
-        Double topP = doubleVal(cfg.get("topP"));
-        if (topP != null) {
-            chatConfig.addDefaultOption("top_p", topP);
+        if (cfg.getTopP() != null) {
+            chatConfig.addDefaultOption("top_p", cfg.getTopP());
         }
-        Integer maxTokens = intVal(cfg.get("maxTokens"));
-        if (maxTokens != null && maxTokens > 0) {
-            chatConfig.addDefaultOption("max_tokens", maxTokens);
+        if (cfg.getMaxTokens() != null && cfg.getMaxTokens() > 0) {
+            chatConfig.addDefaultOption("max_tokens", cfg.getMaxTokens());
         }
         return chatConfig;
     }
 
+    /**
+     * 按 code 批量加载启用状态的 Skill。
+     *
+     * @param codes Skill code 列表
+     * @return Skill 列表；codes 为空时返回空列表
+     */
     private List<AgentSkill> loadSkillsByCodes(List<String> codes) {
         if (codes.isEmpty()) {
             return List.of();
@@ -310,6 +380,12 @@ public class AgentWorkflowLlmSupport {
         return list == null ? List.of() : list;
     }
 
+    /**
+     * 按 code 批量加载启用状态的 MCP。
+     *
+     * @param codes MCP code 列表
+     * @return MCP 列表；codes 为空时返回空列表
+     */
     private List<AgentMcp> loadMcpsByCodes(List<String> codes) {
         if (codes.isEmpty()) {
             return List.of();
@@ -320,6 +396,13 @@ public class AgentWorkflowLlmSupport {
         return list == null ? List.of() : list;
     }
 
+    /**
+     * 无工具时：将 Skill 正文直接拼入 system prompt。
+     *
+     * @param systemPrompt 原系统提示
+     * @param skills       Skill 列表
+     * @return 拼接后的系统提示
+     */
     private static String appendSkillBodies(String systemPrompt, List<AgentSkill> skills) {
         StringBuilder sb = new StringBuilder(systemPrompt == null ? "" : systemPrompt.trim());
         for (AgentSkill skill : skills) {
@@ -339,76 +422,23 @@ public class AgentWorkflowLlmSupport {
         return sb.toString();
     }
 
-    private static List<String> stringList(Object raw) {
-        if (raw == null) {
+    /**
+     * 规范化 code 列表：去空白、去重。
+     *
+     * @param codes 原始列表
+     * @return 规范化后的列表
+     */
+    private static List<String> normalizeCodes(List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
             return List.of();
         }
         Set<String> out = new LinkedHashSet<>();
-        if (raw instanceof Collection<?> col) {
-            for (Object o : col) {
-                if (o != null) {
-                    String s = String.valueOf(o).trim();
-                    if (!s.isEmpty()) {
-                        out.add(s);
-                    }
-                }
-            }
-        } else if (raw instanceof String s) {
-            for (String part : s.split("[,\\s]+")) {
-                if (part != null && !part.isBlank()) {
-                    out.add(part.trim());
-                }
+        for (String c : codes) {
+            if (c != null && !c.isBlank()) {
+                out.add(c.trim());
             }
         }
         return new ArrayList<>(out);
     }
-
-    private static String str(Object o) {
-        return o == null ? "" : String.valueOf(o);
-    }
-
-    private static Long longVal(Object o) {
-        if (o == null) {
-            return null;
-        }
-        if (o instanceof Number n) {
-            return n.longValue();
-        }
-        try {
-            String s = String.valueOf(o).trim();
-            return s.isEmpty() ? null : Long.parseLong(s);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static Integer intVal(Object o) {
-        if (o == null) {
-            return null;
-        }
-        if (o instanceof Number n) {
-            return n.intValue();
-        }
-        try {
-            String s = String.valueOf(o).trim();
-            return s.isEmpty() ? null : Integer.parseInt(s);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private static Double doubleVal(Object o) {
-        if (o == null) {
-            return null;
-        }
-        if (o instanceof Number n) {
-            return n.doubleValue();
-        }
-        try {
-            String s = String.valueOf(o).trim();
-            return s.isEmpty() ? null : Double.parseDouble(s);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 }
+

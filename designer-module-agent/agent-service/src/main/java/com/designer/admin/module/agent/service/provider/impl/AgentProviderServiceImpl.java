@@ -21,9 +21,9 @@ import com.designer.admin.module.agent.model.vo.provider.ProviderVO;
 import com.designer.admin.module.agent.service.provider.AgentProviderModelClient;
 import com.designer.admin.module.agent.service.provider.AgentProviderService;
 import com.designer.admin.module.agent.service.provider.AgentVendorPresets;
-import com.designer.admin.module.agent.util.AgentEntitySupport;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.util.AgentEntityUtil;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import org.noear.solon.Utils;
 
 /**
  * 模型供应商
@@ -40,11 +40,11 @@ public class AgentProviderServiceImpl implements AgentProviderService {
 
     @Override
     public IPage<ProviderVO> page(ProviderQueryDTO query) {
-        List<String> typeKeys = AgentTexts.notBlank(query.getType())
+        List<String> typeKeys = Utils.isNotBlank(query.getType())
                 ? AgentVendorPresets.typesMatching(query.getType())
                 : null;
         IPage<AgentProvider> page = providerMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentProvider>()
-                .like(AgentTexts.notBlank(query.getName()), AgentProvider::getName, query.getName())
+                .like(Utils.isNotBlank(query.getName()), AgentProvider::getName, query.getName())
                 .in(typeKeys != null, AgentProvider::getType, typeKeys)
                 .eq(query.getStatus() != null, AgentProvider::getStatus, query.getStatus())
                 .orderByDesc(AgentProvider::getId));
@@ -73,17 +73,17 @@ public class AgentProviderServiceImpl implements AgentProviderService {
 
     @Override
     public ProviderVO save(ProviderSaveDTO dto) {
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("供应商名称不能为空");
         }
         AgentProvider entity = new AgentProvider();
         entity.setName(dto.getName().trim());
-        entity.setType(AgentVendorPresets.toStandard(AgentTexts.notBlank(dto.getType()) ? dto.getType() : "openai"));
+        entity.setType(AgentVendorPresets.toStandard(Utils.isNotBlank(dto.getType()) ? dto.getType() : "openai"));
         entity.setBaseUrl(dto.getBaseUrl() == null ? "" : dto.getBaseUrl().trim());
         String apiKey = dto.getApiKey() == null ? "" : dto.getApiKey();
         entity.setApiKey(apiKey);
         entity.setApiKeyMasked(maskKey(apiKey));
-        entity.setModelsJson(AgentJson.toJson(dto.getModels() == null ? List.of() : dto.getModels()));
+        entity.setModelsJson(AgentJsonUtil.toJson(dto.getModels() == null ? List.of() : dto.getModels()));
         entity.setStatus(dto.getStatus() == null ? 1 : dto.getStatus());
         entity.setRemark(dto.getRemark() == null ? "" : dto.getRemark());
         providerMapper.insert(entity);
@@ -96,18 +96,18 @@ public class AgentProviderServiceImpl implements AgentProviderService {
             throw new BizException("供应商ID不能为空");
         }
         AgentProvider existing = require(dto.getId());
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("供应商名称不能为空");
         }
         existing.setName(dto.getName().trim());
-        existing.setType(AgentTexts.notBlank(dto.getType())
+        existing.setType(Utils.isNotBlank(dto.getType())
                 ? AgentVendorPresets.toStandard(dto.getType())
                 : AgentVendorPresets.toStandard(existing.getType()));
         existing.setBaseUrl(dto.getBaseUrl() == null ? "" : dto.getBaseUrl().trim());
-        existing.setModelsJson(AgentJson.toJson(dto.getModels() == null ? List.of() : dto.getModels()));
+        existing.setModelsJson(AgentJsonUtil.toJson(dto.getModels() == null ? List.of() : dto.getModels()));
         existing.setStatus(dto.getStatus());
         existing.setRemark(dto.getRemark() == null ? "" : dto.getRemark());
-        if (AgentTexts.notBlank(dto.getApiKey())) {
+        if (Utils.isNotBlank(dto.getApiKey())) {
             existing.setApiKey(dto.getApiKey());
             existing.setApiKeyMasked(maskKey(dto.getApiKey()));
         }
@@ -120,7 +120,7 @@ public class AgentProviderServiceImpl implements AgentProviderService {
         if (ids == null || ids.isEmpty()) {
             return;
         }
-        AgentEntitySupport.deleteBatchIds(providerMapper, ids);
+        AgentEntityUtil.deleteBatchIds(providerMapper, ids);
     }
 
     @Override
@@ -135,16 +135,16 @@ public class AgentProviderServiceImpl implements AgentProviderService {
 
         if (dto.getId() != null) {
             AgentProvider row = require(dto.getId());
-            if (!AgentTexts.notBlank(type)) {
+            if (Utils.isBlank(type)) {
                 type = row.getType();
             }
-            if (!AgentTexts.notBlank(baseUrl)) {
+            if (Utils.isBlank(baseUrl)) {
                 baseUrl = row.getBaseUrl();
             }
-            if (!AgentTexts.notBlank(apiKey)) {
+            if (Utils.isBlank(apiKey)) {
                 apiKey = row.getApiKey();
             }
-            existing = AgentJson.parseMapList(row.getModelsJson());
+            existing = AgentJsonUtil.parseMapList(row.getModelsJson());
         }
 
         List<Map<String, Object>> fetched = modelClient.fetchModels(
@@ -208,7 +208,7 @@ public class AgentProviderServiceImpl implements AgentProviderService {
     }
 
     private AgentProvider require(Long id) {
-        return AgentEntitySupport.require(providerMapper.selectById(id), "供应商不存在");
+        return AgentEntityUtil.require(providerMapper.selectById(id), "供应商不存在");
     }
 
     private ProviderVO toVo(AgentProvider e) {
@@ -219,7 +219,7 @@ public class AgentProviderServiceImpl implements AgentProviderService {
         vo.setBaseUrl(e.getBaseUrl());
         vo.setApiKey("");
         vo.setApiKeyMasked(e.getApiKeyMasked());
-        vo.setModels(AgentJson.parseMapList(e.getModelsJson()));
+        vo.setModels(AgentJsonUtil.parseMapList(e.getModelsJson()));
         vo.setStatus(e.getStatus());
         vo.setRemark(e.getRemark());
         vo.setCreateTime(e.getCreateTime());

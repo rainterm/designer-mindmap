@@ -23,4 +23,7 @@ public class SendMessageDTO {
 
     @ApiModelProperty("调试模式：true 时本次对话使用草稿配置，不影响已发布配置")
     private Boolean useDraft;
+
+    @ApiModelProperty("导图编辑侧边对话：绑定的导图项目 ID（写入系统上下文，不进入用户消息）")
+    private Long mmProjectId;
 }

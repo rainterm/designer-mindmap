@@ -29,9 +29,9 @@ import com.designer.admin.module.agent.model.vo.agent.AgentVO;
 import com.designer.admin.module.agent.model.vo.agent.AgentVersionVO;
 import com.designer.admin.module.agent.service.agent.AgentAgentService;
 import com.designer.admin.module.agent.constant.AgentConsts;
-import com.designer.admin.module.agent.util.AgentEntitySupport;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.util.AgentEntityUtil;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import org.noear.solon.Utils;
 
 /**
  * 智能体管理
@@ -51,7 +51,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
     @Override
     public IPage<AgentVO> page(AgentQueryDTO query) {
         IPage<AgentAgent> page = agentMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentAgent>()
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentAgent::getName, query.getName())
                         .or()
                         .like(AgentAgent::getCode, query.getName()))
@@ -67,7 +67,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
                 .eq(AgentAgent::getStatus, SystemConsts.STATUS_ENABLE)
                 // version>0 表示已发布；从未发布（草稿态）不进入商店
                 .gt(AgentAgent::getVersion, 0)
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentAgent::getName, query.getName())
                         .or()
                         .like(AgentAgent::getCode, query.getName()))
@@ -103,7 +103,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
     public AgentVO getById(Long id) {
         AgentAgent agent = require(id);
         String draftJson = draftJsonOf(agent);
-        AgentSaveDTO draft = AgentJson.parse(draftJson, AgentSaveDTO.class);
+        AgentSaveDTO draft = AgentJsonUtil.parse(draftJson, AgentSaveDTO.class);
         Long providerId = draft != null && draft.getProviderId() != null ? draft.getProviderId() : agent.getProviderId();
         String providerName = null;
         if (providerId != null) {
@@ -131,7 +131,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
     @Override
     public AgentVO save(AgentSaveDTO dto) {
         validate(dto, null);
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             dto.setCode(nextAgentCode());
         }
         AgentAgent entity = toEntity(dto);
@@ -141,7 +141,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         // 新建即草稿态：version=0 表示从未发布，商店不展示；首次发布后才为 v1
         entity.setVersion(0);
         entity.setDraftVersion(1);
-        entity.setDraftJson(AgentJson.toJson(dto));
+        entity.setDraftJson(AgentJsonUtil.toJson(dto));
         agentMapper.insert(entity);
         return getById(entity.getId());
     }
@@ -152,11 +152,11 @@ public class AgentAgentServiceImpl implements AgentAgentService {
             throw new BizException("智能体ID不能为空");
         }
         AgentAgent existing = require(dto.getId());
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             dto.setCode(existing.getCode());
         }
         validate(dto, dto.getId());
-        int nextDraft = AgentEntitySupport.bumpDraftVersion(existing.getDraftVersion());
+        int nextDraft = AgentEntityUtil.bumpDraftVersion(existing.getDraftVersion());
         agentMapper.update(null, new LambdaUpdateWrapper<AgentAgent>()
                 .eq(AgentAgent::getId, dto.getId())
                 .set(AgentAgent::getName, dto.getName().trim())
@@ -164,7 +164,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
                 .set(AgentAgent::getAvatar, dto.getAvatar() == null ? "" : dto.getAvatar())
                 .set(AgentAgent::getStatus, dto.getStatus() == null ? existing.getStatus() : dto.getStatus())
                 .set(AgentAgent::getRemark, dto.getRemark() == null ? "" : dto.getRemark())
-                .set(AgentAgent::getDraftJson, AgentJson.toJson(dto))
+                .set(AgentAgent::getDraftJson, AgentJsonUtil.toJson(dto))
                 .set(AgentAgent::getDraftVersion, nextDraft));
         return getById(dto.getId());
     }
@@ -174,11 +174,11 @@ public class AgentAgentServiceImpl implements AgentAgentService {
     public AgentVO publish(Long id) {
         AgentAgent existing = require(id);
         String draftJson = draftJsonOf(existing);
-        AgentSaveDTO draft = AgentJson.parse(draftJson, AgentSaveDTO.class);
+        AgentSaveDTO draft = AgentJsonUtil.parse(draftJson, AgentSaveDTO.class);
         if (draft == null) {
             throw new BizException("草稿内容缺失，无法发布");
         }
-        int nextVersion = AgentEntitySupport.nextPublishVersion(existing.getVersion());
+        int nextVersion = AgentEntityUtil.nextPublishVersion(existing.getVersion());
         // 幂等发布：已存在同版本快照则覆盖
         AgentAgentVersion snapshot = versionMapper.selectOne(new LambdaQueryWrapper<AgentAgentVersion>()
                 .eq(AgentAgentVersion::getAgentId, id)
@@ -232,7 +232,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
             throw new BizException("历史版本不存在");
         }
         AgentVersionVO vo = toVersionVo(row);
-        vo.setConfig(AgentJson.parseMap(row.getConfigJson()));
+        vo.setConfig(AgentJsonUtil.parseMap(row.getConfigJson()));
         return vo;
     }
 
@@ -248,7 +248,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         }
         existing.setDraftJson(snap.getConfigJson());
         // draftVersion 递增以标识草稿发生了一次内容变更
-        existing.setDraftVersion(AgentEntitySupport.bumpDraftVersion(existing.getDraftVersion()));
+        existing.setDraftVersion(AgentEntityUtil.bumpDraftVersion(existing.getDraftVersion()));
         agentMapper.updateById(existing);
         return getById(id);
     }
@@ -258,7 +258,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         if (ids == null || ids.isEmpty()) {
             return;
         }
-        AgentEntitySupport.deleteBatchIds(agentMapper, ids);
+        AgentEntityUtil.deleteBatchIds(agentMapper, ids);
     }
 
     @Override
@@ -269,7 +269,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
     @Override
     public AgentVO enablePublic(Long id) {
         AgentAgent agent = requirePublished(id);
-        String token = AgentTexts.notBlank(agent.getPublicToken())
+        String token = Utils.isNotBlank(agent.getPublicToken())
                 ? agent.getPublicToken()
                 : newPublicToken();
         agentMapper.update(null, new LambdaUpdateWrapper<AgentAgent>()
@@ -303,7 +303,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
 
     @Override
     public AgentAgent requireByPublicToken(String publicToken) {
-        if (!AgentTexts.notBlank(publicToken)) {
+        if (Utils.isBlank(publicToken)) {
             throw new BizException("公开链接无效");
         }
         AgentAgent agent = agentMapper.selectOne(new LambdaQueryWrapper<AgentAgent>()
@@ -325,21 +325,21 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         if (agent == null) {
             return;
         }
-        AgentSaveDTO draft = AgentJson.parse(draftJsonOf(agent), AgentSaveDTO.class);
+        AgentSaveDTO draft = AgentJsonUtil.parse(draftJsonOf(agent), AgentSaveDTO.class);
         if (draft != null) {
             applyConfig(agent, draft);
         }
     }
 
     private void validate(AgentSaveDTO dto, Long excludeId) {
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("智能体名称不能为空");
         }
-        if (AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isNotBlank(dto.getCode())) {
             Long cnt = agentMapper.selectCount(new LambdaQueryWrapper<AgentAgent>()
                     .eq(AgentAgent::getCode, dto.getCode().trim())
                     .ne(excludeId != null, AgentAgent::getId, excludeId));
-            AgentEntitySupport.assertCodeUnique(cnt, "智能体编码已存在");
+            AgentEntityUtil.assertCodeUnique(cnt, "智能体编码已存在");
         }
     }
 
@@ -358,7 +358,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
     }
 
     private AgentAgent require(Long id) {
-        return AgentEntitySupport.require(agentMapper.selectById(id), "智能体不存在");
+        return AgentEntityUtil.require(agentMapper.selectById(id), "智能体不存在");
     }
 
     /** 已启用且已发布；开放接口 / 公开链接共用 */
@@ -391,11 +391,11 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         // 0 表示不限制（不向模型传 max_tokens）
         e.setMaxTokens(dto.getMaxTokens() != null && dto.getMaxTokens() > 0 ? dto.getMaxTokens() : 0);
         e.setMemoryRounds(normalizeMemoryRounds(dto.getMemoryRounds()));
-        e.setToolIdsJson(AgentJson.toJson(dto.getToolIds() == null ? List.of() : dto.getToolIds()));
-        e.setMcpIdsJson(AgentJson.toJson(dto.getMcpIds() == null ? List.of() : dto.getMcpIds()));
-        e.setSkillIdsJson(AgentJson.toJson(dto.getSkillIds() == null ? List.of() : dto.getSkillIds()));
-        e.setWorkflowIdsJson(AgentJson.toJson(dto.getWorkflowIds() == null ? List.of() : dto.getWorkflowIds()));
-        e.setKnowledgeIdsJson(AgentJson.toJson(dto.getKnowledgeIds() == null ? List.of() : dto.getKnowledgeIds()));
+        e.setToolIdsJson(AgentJsonUtil.toJson(dto.getToolIds() == null ? List.of() : dto.getToolIds()));
+        e.setMcpIdsJson(AgentJsonUtil.toJson(dto.getMcpIds() == null ? List.of() : dto.getMcpIds()));
+        e.setSkillIdsJson(AgentJsonUtil.toJson(dto.getSkillIds() == null ? List.of() : dto.getSkillIds()));
+        e.setWorkflowIdsJson(AgentJsonUtil.toJson(dto.getWorkflowIds() == null ? List.of() : dto.getWorkflowIds()));
+        e.setKnowledgeIdsJson(AgentJsonUtil.toJson(dto.getKnowledgeIds() == null ? List.of() : dto.getKnowledgeIds()));
         e.setEmbeddingProviderId(dto.getEmbeddingProviderId());
         e.setEmbeddingModel(dto.getEmbeddingModel() == null ? "" : dto.getEmbeddingModel().trim());
         e.setRerankProviderId(dto.getRerankProviderId());
@@ -432,11 +432,11 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         vo.setTopP(e.getTopP());
         vo.setMaxTokens(e.getMaxTokens());
         vo.setMemoryRounds(normalizeMemoryRounds(e.getMemoryRounds()));
-        vo.setToolIds(AgentJson.parseLongList(e.getToolIdsJson()));
-        vo.setMcpIds(AgentJson.parseLongList(e.getMcpIdsJson()));
-        vo.setSkillIds(AgentJson.parseLongList(e.getSkillIdsJson()));
-        vo.setWorkflowIds(AgentJson.parseLongList(e.getWorkflowIdsJson()));
-        vo.setKnowledgeIds(AgentJson.parseLongList(e.getKnowledgeIdsJson()));
+        vo.setToolIds(AgentJsonUtil.parseLongList(e.getToolIdsJson()));
+        vo.setMcpIds(AgentJsonUtil.parseLongList(e.getMcpIdsJson()));
+        vo.setSkillIds(AgentJsonUtil.parseLongList(e.getSkillIdsJson()));
+        vo.setWorkflowIds(AgentJsonUtil.parseLongList(e.getWorkflowIdsJson()));
+        vo.setKnowledgeIds(AgentJsonUtil.parseLongList(e.getKnowledgeIdsJson()));
         vo.setEmbeddingProviderId(e.getEmbeddingProviderId());
         vo.setEmbeddingModel(e.getEmbeddingModel() == null ? "" : e.getEmbeddingModel());
         vo.setRerankProviderId(e.getRerankProviderId());
@@ -465,7 +465,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
 
     /** 草稿配置 JSON；为空（未回填的旧数据）时从主表正式字段构建 */
     private static String draftJsonOf(AgentAgent e) {
-        if (AgentTexts.notBlank(e.getDraftJson())) {
+        if (Utils.isNotBlank(e.getDraftJson())) {
             return e.getDraftJson();
         }
         AgentSaveDTO dto = new AgentSaveDTO();
@@ -476,11 +476,11 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         dto.setTopP(e.getTopP());
         dto.setMaxTokens(e.getMaxTokens());
         dto.setMemoryRounds(e.getMemoryRounds());
-        dto.setToolIds(AgentJson.parseLongList(e.getToolIdsJson()));
-        dto.setMcpIds(AgentJson.parseLongList(e.getMcpIdsJson()));
-        dto.setSkillIds(AgentJson.parseLongList(e.getSkillIdsJson()));
-        dto.setWorkflowIds(AgentJson.parseLongList(e.getWorkflowIdsJson()));
-        dto.setKnowledgeIds(AgentJson.parseLongList(e.getKnowledgeIdsJson()));
+        dto.setToolIds(AgentJsonUtil.parseLongList(e.getToolIdsJson()));
+        dto.setMcpIds(AgentJsonUtil.parseLongList(e.getMcpIdsJson()));
+        dto.setSkillIds(AgentJsonUtil.parseLongList(e.getSkillIdsJson()));
+        dto.setWorkflowIds(AgentJsonUtil.parseLongList(e.getWorkflowIdsJson()));
+        dto.setKnowledgeIds(AgentJsonUtil.parseLongList(e.getKnowledgeIdsJson()));
         dto.setEmbeddingProviderId(e.getEmbeddingProviderId());
         dto.setEmbeddingModel(e.getEmbeddingModel());
         dto.setRerankProviderId(e.getRerankProviderId());
@@ -489,7 +489,7 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         dto.setRagRecallTopK(e.getRagRecallTopK());
         dto.setRagScoreThreshold(e.getRagScoreThreshold());
         dto.setFileEnabled(e.getFileEnabled());
-        return AgentJson.toJson(dto);
+        return AgentJsonUtil.toJson(dto);
     }
 
     /** 把草稿配置应用到主表正式字段（发布用）：只覆盖配置内容，不动基本信息 */
@@ -501,11 +501,11 @@ public class AgentAgentServiceImpl implements AgentAgentService {
         e.setTopP(dto.getTopP() == null ? BigDecimal.ONE : dto.getTopP());
         e.setMaxTokens(dto.getMaxTokens() != null && dto.getMaxTokens() > 0 ? dto.getMaxTokens() : 0);
         e.setMemoryRounds(dto.getMemoryRounds());
-        e.setToolIdsJson(AgentJson.toJson(dto.getToolIds() == null ? List.of() : dto.getToolIds()));
-        e.setMcpIdsJson(AgentJson.toJson(dto.getMcpIds() == null ? List.of() : dto.getMcpIds()));
-        e.setSkillIdsJson(AgentJson.toJson(dto.getSkillIds() == null ? List.of() : dto.getSkillIds()));
-        e.setWorkflowIdsJson(AgentJson.toJson(dto.getWorkflowIds() == null ? List.of() : dto.getWorkflowIds()));
-        e.setKnowledgeIdsJson(AgentJson.toJson(dto.getKnowledgeIds() == null ? List.of() : dto.getKnowledgeIds()));
+        e.setToolIdsJson(AgentJsonUtil.toJson(dto.getToolIds() == null ? List.of() : dto.getToolIds()));
+        e.setMcpIdsJson(AgentJsonUtil.toJson(dto.getMcpIds() == null ? List.of() : dto.getMcpIds()));
+        e.setSkillIdsJson(AgentJsonUtil.toJson(dto.getSkillIds() == null ? List.of() : dto.getSkillIds()));
+        e.setWorkflowIdsJson(AgentJsonUtil.toJson(dto.getWorkflowIds() == null ? List.of() : dto.getWorkflowIds()));
+        e.setKnowledgeIdsJson(AgentJsonUtil.toJson(dto.getKnowledgeIds() == null ? List.of() : dto.getKnowledgeIds()));
         e.setEmbeddingProviderId(dto.getEmbeddingProviderId());
         e.setEmbeddingModel(dto.getEmbeddingModel() == null ? "" : dto.getEmbeddingModel().trim());
         e.setRerankProviderId(dto.getRerankProviderId());

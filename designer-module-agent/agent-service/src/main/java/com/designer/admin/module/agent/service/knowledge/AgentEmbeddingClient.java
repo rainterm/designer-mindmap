@@ -3,7 +3,7 @@ package com.designer.admin.module.agent.service.knowledge;
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.module.agent.service.provider.adapter.ModelListHttpSupport;
 import com.designer.admin.module.agent.service.provider.adapter.ModelListParseSupport;
-import com.designer.admin.module.agent.util.AgentJson;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
 import org.noear.snack4.ONode;
 import org.noear.solon.annotation.Component;
 import org.slf4j.Logger;
@@ -85,7 +85,7 @@ public class AgentEmbeddingClient {
             inputs.add(t == null ? "" : t);
         }
         payload.put("input", inputs);
-        String json = AgentJson.toJson(payload);
+        String json = AgentJsonUtil.toJson(payload);
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(TIMEOUT_SEC))

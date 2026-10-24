@@ -2,7 +2,7 @@ package com.designer.admin.module.agent.workflow;
 
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.module.agent.constant.workflow.WorkflowNodeType;
-import com.designer.admin.module.agent.util.AgentJson;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
 import org.noear.solon.flow.Graph;
 import org.noear.solon.flow.NodeSpec;
 
@@ -21,9 +21,21 @@ import java.util.Set;
  */
 public final class AgentWorkflowGraphBuilder {
 
+    /** 工具类，禁止实例化。 */
     private AgentWorkflowGraphBuilder() {
     }
 
+    /**
+     * 构建 Solon Flow 图。
+     *
+     * @param workflowId 工作流 id（用于 graphId；可为 null）
+     * @param title      图标题；空白时用 graphId
+     * @param nodes      Vue Flow 节点列表
+     * @param edges      Vue Flow 边列表
+     * @param tasks      活动 / 条件节点任务工厂
+     * @return Solon Flow Graph
+     * @throws BizException 无节点或缺少开始节点时抛出
+     */
     @SuppressWarnings("unchecked")
     public static Graph build(Long workflowId, String title,
                               List<Map<String, Object>> nodes,
@@ -76,7 +88,7 @@ public final class AgentWorkflowGraphBuilder {
                 if (name.isBlank()) {
                     name = key;
                 }
-                String config = AgentJson.configAsString(n.get("config"));
+                String config = AgentJsonUtil.configAsString(n.get("config"));
                 WorkflowNodeType nodeType = WorkflowNodeType.fromCode(type);
                 String outputVar = WorkflowNodeType.OUTPUT == nodeType ? "" : str(n.get("outputVar"));
                 NodeSpec spec;
@@ -107,7 +119,7 @@ public final class AgentWorkflowGraphBuilder {
                     continue;
                 }
                 if (WorkflowNodeType.CONDITION.eq(type)) {
-                    AgentWorkflowCondition.Spec spec = AgentWorkflowCondition.parse(AgentJson.configAsString(n.get("config")));
+                    AgentWorkflowCondition.Spec spec = AgentWorkflowCondition.parse(AgentJsonUtil.configAsString(n.get("config")));
                     int i = 0;
                     for (Map<String, Object> e : outs) {
                         String target = str(e.get("target"));
@@ -128,14 +140,33 @@ public final class AgentWorkflowGraphBuilder {
         });
     }
 
+    /**
+     * 去掉单引号，避免 when 表达式注入。
+     *
+     * @param s 原始字符串
+     * @return 清洗后字符串
+     */
     private static String escape(String s) {
         return s.replace("'", "");
     }
 
+    /**
+     * 将对象转为去空白字符串。
+     *
+     * @param o 任意对象
+     * @return 非 null 字符串
+     */
     private static String str(Object o) {
         return o == null ? "" : String.valueOf(o).trim();
     }
 
+    /**
+     * 返回第一个非空白字符串。
+     *
+     * @param a 优先值
+     * @param b 回退值
+     * @return 非 null 字符串
+     */
     private static String firstNonBlank(String a, String b) {
         if (a != null && !a.isBlank()) {
             return a;

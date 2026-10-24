@@ -412,7 +412,8 @@ export async function sendMessageStream(
   callbacks = {},
   signal,
   attachments = [],
-  useDraft = false
+  useDraft = false,
+  extra = {}
 ) {
   const { onUser, onDelta, onTool, onThinking, onStatus, onDone, onError } = callbacks
   const base = import.meta.env.VITE_API_BASE || ''
@@ -423,7 +424,7 @@ export async function sendMessageStream(
       Accept: 'text/event-stream',
       Authorization: getToken() || ''
     },
-    body: JSON.stringify({ content, attachments, useDraft }),
+    body: JSON.stringify({ content, attachments, useDraft, ...extra }),
     signal
   })
   if (!res.ok) {

@@ -3,7 +3,6 @@
     <n-card :bordered="false" class="edit-topbar">
       <div class="topbar-inner">
         <div class="topbar-left">
-          <n-button quaternary @click="goBack">返回</n-button>
           <n-input
             v-model:value="form.name"
             class="name-input"
@@ -22,6 +21,16 @@
           <span class="save-tip">{{ saveLabel }}</span>
         </div>
         <n-space align="center">
+          <n-button
+            :type="aiPanelVisible ? 'primary' : 'default'"
+            secondary
+            :loading="aiOpening"
+            :disabled="!form.id || aiOpening"
+            @click="handleAiExpand"
+          >
+            {{ aiPanelVisible ? '关闭 AI' : 'AI 扩展' }}
+          </n-button>
+          <n-button quaternary @click="goBack">返回</n-button>
           <n-dropdown
             trigger="click"
             :options="moreOptions"
@@ -54,6 +63,7 @@
           <div class="mm-canvas-wrap">
             <MindMapCanvas
               v-if="form.id && !loading"
+              :key="canvasKey"
               ref="canvasRef"
               :content="initialContent"
               :layout="form.layout"
@@ -67,8 +77,9 @@
               <button type="button" class="tip-close" @click="dismissTip">知道了</button>
             </div>
           </div>
-          <aside class="editor-side">
+          <aside class="editor-side" :class="{ 'is-ai': aiPanelVisible }">
             <EasyPanel
+              v-if="!aiPanelVisible"
               :has-selection="hasNodeSelection"
               :model="globalSettings"
               :node-style="nodeStyle"
@@ -78,6 +89,19 @@
               @note-change="onNodeNoteChange"
               @node-reset="onNodeStyleReset"
             />
+            <div v-else class="ai-side-panel">
+              <div class="ai-side-head">
+                <span class="ai-side-title">AI 扩展</span>
+              </div>
+              <div class="ai-side-body">
+                <iframe
+                  v-if="aiChatUrl"
+                  :src="aiChatUrl"
+                  class="ai-chat-iframe"
+                  title="导图助手"
+                />
+              </div>
+            </div>
           </aside>
         </div>
       </n-spin>
@@ -93,6 +117,8 @@ import MindMapCanvas from '@/modules/mindmap/components/MindMapCanvas.vue'
 import EasyPanel from '@/modules/mindmap/components/EasyPanel.vue'
 import { getProject, listCategories, updateProject } from '@/modules/mindmap/api'
 import { toSelectOptions } from '@/modules/mindmap/utils/categoryTree'
+import { openMindmapAgentSession } from '@/modules/mindmap/utils/openMindmapAgent'
+import { MM_PROJECT_SAVED_EVENT } from '@/modules/agent/utils/mindmapToolLink'
 import { useUserStore } from '@/store/user'
 
 const TIP_KEY = 'admin-mindmap:edit-tip-dismissed'
@@ -106,10 +132,14 @@ const canEdit = computed(() => userStore.hasPerm('mindmap:project:edit'))
 
 const canvasRef = ref(null)
 const canvasReady = ref(false)
+const canvasKey = ref(0)
 const loading = ref(true)
 const saving = ref(false)
 const importing = ref(false)
 const exporting = ref(false)
+const aiOpening = ref(false)
+const aiPanelVisible = ref(false)
+const aiChatUrl = ref('')
 const dirty = ref(false)
 const importFileRef = ref(null)
 const showTip = ref(!localStorage.getItem(TIP_KEY))
@@ -206,6 +236,69 @@ function dismissTip() {
 
 function goBack() {
   router.push('/mindmap/project')
+}
+
+async function handleAiExpand() {
+  if (!form.id || aiOpening.value) return
+  if (aiPanelVisible.value) {
+    closeAiPanel()
+    return
+  }
+  aiOpening.value = true
+  try {
+    const { sessionId } = await openMindmapAgentSession(form.id)
+    const { href } = router.resolve({
+      path: '/agent/session/chat',
+      query: { id: sessionId, embed: '1', projectId: String(form.id) }
+    })
+    aiChatUrl.value = href
+    aiPanelVisible.value = true
+    nextTick(() => canvasRef.value?.resize?.())
+  } catch (e) {
+    message.error(e?.message || '打开 AI 对话失败')
+  } finally {
+    aiOpening.value = false
+  }
+}
+
+async function refreshProjectFromServer() {
+  if (!form.id) return
+  try {
+    const res = await getProject(form.id)
+    const data = res.data || {}
+    const nextContent = data.content || ''
+    const contentChanged = nextContent !== form.content
+    form.categoryId = data.categoryId || null
+    form.name = data.name || form.name
+    form.layout = data.layout || form.layout
+    form.theme = data.theme || form.theme
+    form.remark = data.remark || ''
+    if (contentChanged) {
+      form.content = nextContent
+      initialContent.value = nextContent
+      canvasReady.value = false
+      canvasKey.value += 1
+      dirty.value = false
+    }
+  } catch {
+    /* 刷新失败不打断编辑 */
+  }
+}
+
+async function closeAiPanel() {
+  if (!aiPanelVisible.value) return
+  aiPanelVisible.value = false
+  aiChatUrl.value = ''
+  await refreshProjectFromServer()
+  nextTick(() => canvasRef.value?.resize?.())
+}
+
+function onMindmapSavedMessage(ev) {
+  if (ev.origin !== window.location.origin) return
+  const data = ev.data
+  if (!data || data.type !== MM_PROJECT_SAVED_EVENT) return
+  if (!form.id || String(data.projectId) !== String(form.id)) return
+  refreshProjectFromServer()
 }
 
 function markDirty() {
@@ -410,11 +503,13 @@ async function loadDetail() {
 }
 
 onMounted(async () => {
+  window.addEventListener('message', onMindmapSavedMessage)
   await loadCategories()
   await loadDetail()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('message', onMindmapSavedMessage)
   if (saveTimer) clearTimeout(saveTimer)
 })
 </script>
@@ -456,7 +551,8 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .name-input {
-  max-width: 220px;
+  width: 360px;
+  max-width: min(360px, 40vw);
   font-weight: 600;
 }
 .category-select {
@@ -490,9 +586,11 @@ onBeforeUnmount(() => {
 }
 .mm-canvas-wrap {
   position: relative;
+  z-index: 0;
   flex: 1;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: var(--color-body, #f2f5f3);
 }
 .canvas-tip {
@@ -530,12 +628,52 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.24);
 }
 .editor-side {
+  position: relative;
+  z-index: 3;
   width: 240px;
   flex: none;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--color-border, #e2e8e4);
+  background: var(--color-surface, #fff);
+  box-shadow: -6px 0 16px color-mix(in srgb, var(--color-text, #161a17) 6%, transparent);
+  transition: width 0.18s ease;
+}
+.editor-side.is-ai {
+  width: min(420px, 42vw);
+}
+.ai-side-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface, #fff);
+}
+.ai-side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--color-border, #e2e8e4);
+}
+.ai-side-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text, #161a17);
+}
+.ai-side-body {
+  flex: 1;
+  min-height: 0;
+}
+.ai-chat-iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
   background: var(--color-surface, #fff);
 }
 </style>

@@ -1,5 +1,7 @@
 <template>
-  <div ref="elRef" class="mm-canvas" />
+  <div class="mm-root">
+    <div ref="elRef" class="mm-canvas" />
+  </div>
 </template>
 
 <script setup>
@@ -77,6 +79,15 @@ function parsePayload(raw, layout, theme) {
   }
 }
 
+function readNodeNote(node) {
+  if (!node) return ''
+  try {
+    return node.getData?.('note') || ''
+  } catch {
+    return ''
+  }
+}
+
 function init() {
   if (!elRef.value || mindMap) return
   const full = parsePayload(props.content, props.layout, props.theme)
@@ -85,7 +96,12 @@ function init() {
     data: full.root,
     layout: full.layout || props.layout || 'logicalStructure',
     theme: full.theme?.template || props.theme || 'default',
-    themeConfig: full.theme?.config || {}
+    themeConfig: full.theme?.config || {},
+    // 关闭库自带备注悬浮/点击浮层，备注仅在侧栏编辑
+    customNoteContentShow: {
+      show() {},
+      hide() {}
+    }
   })
   if (full.view) {
     mindMap.view.setTransformData(full.view)
@@ -104,8 +120,7 @@ function onDataChange() {
   emit('change', getFullData())
 }
 
-function onNodeActive(_node, activeNodeList = []) {
-  const list = activeNodeList || []
+function emitNodeActiveFromList(list = []) {
   emit('node-active', {
     count: list.length,
     style: list.length ? readNodeStyle(list[0]) : null,
@@ -113,13 +128,8 @@ function onNodeActive(_node, activeNodeList = []) {
   })
 }
 
-function readNodeNote(node) {
-  if (!node) return ''
-  try {
-    return node.getData?.('note') || ''
-  } catch {
-    return ''
-  }
+function onNodeActive(_node, activeNodeList = []) {
+  emitNodeActiveFromList(activeNodeList || [])
 }
 
 function readNodeStyle(node) {
@@ -173,12 +183,7 @@ function resetActiveNodeStyles() {
   nodes.forEach((node) => {
     mindMap.execCommand('REMOVE_CUSTOM_STYLES', node)
   })
-  const list = getActiveNodes()
-  emit('node-active', {
-    count: list.length,
-    style: list.length ? readNodeStyle(list[0]) : null,
-    note: list.length ? readNodeNote(list[0]) : ''
-  })
+  emitNodeActiveFromList(getActiveNodes())
 }
 
 function expandAll() {
@@ -348,7 +353,6 @@ function applyGlobalSetting(key, value) {
   if (layerKeyMap[key]) {
     const [layer, prop] = layerKeyMap[key]
     custom[layer] = { ...(custom[layer] || {}), [prop]: value }
-    // 同步顶层内边距兜底，避免未单独配置的层级读到旧值
     if (prop === 'paddingX' || prop === 'paddingY') {
       custom[prop] = value
     }
@@ -365,9 +369,7 @@ function applyGlobalSetting(key, value) {
   }
   silent = true
   try {
-    // 传入全新对象，避免和实例内部配置共用引用
     mindMap.setThemeConfig(cloneThemeCustom(custom))
-    // 强制按换主题链路重绘，确保三级节点形状/描边立即生效
     mindMap.render?.(null, 'changeTheme')
   } finally {
     silent = false
@@ -425,7 +427,6 @@ async function importFile(file) {
     try {
       payload = JSON.parse(text)
     } catch {
-      // 纯文本按 markdown 大纲尝试解析
       if (name.endsWith('.txt') || name.endsWith('.md')) {
         payload = transformMarkdownTo(text)
       } else {
@@ -500,6 +501,12 @@ defineExpose({
 </script>
 
 <style scoped>
+.mm-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+}
 .mm-canvas {
   width: 100%;
   height: 100%;

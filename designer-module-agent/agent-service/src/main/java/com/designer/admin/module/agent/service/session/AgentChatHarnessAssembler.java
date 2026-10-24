@@ -5,11 +5,14 @@ import com.designer.admin.common.constant.SystemConsts;
 import com.designer.admin.common.exception.BizException;
 import com.designer.admin.module.agent.constant.AgentConsts;
 import com.designer.admin.module.agent.constant.session.AgentMessageRole;
-import com.designer.admin.module.agent.harness.AgentChatConfigFactory;
-import com.designer.admin.module.agent.harness.AgentMcpClientSupport;
-import com.designer.admin.module.agent.harness.AgentSkillMountSupport;
-import com.designer.admin.module.agent.harness.AgentToolMapping;
-import com.designer.admin.module.agent.harness.WorkflowFunctionTool;
+import com.designer.admin.module.agent.harness.config.AgentChatConfigFactory;
+import com.designer.admin.module.agent.harness.mcp.AgentMcpClientSupport;
+import com.designer.admin.module.agent.harness.skill.AgentSkillMountSupport;
+import com.designer.admin.module.agent.harness.context.MmProjectChatContext;
+import com.designer.admin.module.agent.harness.tool.AgentToolMapping;
+import com.designer.admin.module.agent.harness.tool.FunctionToolBuildContext;
+import com.designer.admin.module.agent.harness.tool.FunctionToolProviderRegistry;
+import com.designer.admin.module.agent.harness.tool.MmProjectFunctionTool;
 import com.designer.admin.module.agent.mapper.mcp.AgentMcpMapper;
 import com.designer.admin.module.agent.mapper.session.AgentMessageMapper;
 import com.designer.admin.module.agent.mapper.provider.AgentProviderMapper;
@@ -22,18 +25,15 @@ import com.designer.admin.module.agent.model.entity.session.AgentMessage;
 import com.designer.admin.module.agent.model.entity.provider.AgentProvider;
 import com.designer.admin.module.agent.model.entity.skill.AgentSkill;
 import com.designer.admin.module.agent.model.entity.tool.AgentTool;
-import com.designer.admin.module.agent.model.entity.workflow.AgentWorkflow;
 import com.designer.admin.module.agent.service.knowledge.AgentKnowledgeRetrieveService;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveOptions;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveResult;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.workflow.AgentWorkflowExecutor;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
 import org.apache.ibatis.solon.annotation.Db;
 import org.noear.solon.annotation.Component;
 import org.noear.solon.annotation.Inject;
 import org.noear.solon.ai.agent.session.InMemoryAgentSession;
 import org.noear.solon.ai.chat.ChatConfig;
-import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.message.ChatMessage;
 import org.noear.solon.ai.chat.tool.FunctionTool;
 import org.noear.solon.ai.harness.HarnessEngine;
@@ -55,7 +55,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * 对话 Harness 组装：供应商 / 工具 / MCP / Skill / RAG / 工作流工具 / 历史记忆。
+ * 对话 Harness 组装：供应商 / 工具 / MCP / Skill / RAG / 自定义 FunctionTool / 历史记忆。
  *
  * @author 雨夜终端
  */
@@ -79,9 +79,9 @@ public class AgentChatHarnessAssembler {
     @Db
     private AgentMessageMapper messageMapper;
     @Inject
-    private AgentWorkflowExecutor workflowExecutor;
-    @Inject
     private AgentKnowledgeRetrieveService knowledgeRetrieveService;
+    @Inject
+    private FunctionToolProviderRegistry functionToolProviderRegistry;
 
     /**
      * 组装一次对话所需的 Harness 上下文（不含 ReAct 流式执行）。
@@ -110,13 +110,14 @@ public class AgentChatHarnessAssembler {
             throw new BizException(e.getMessage(), e);
         }
 
-        List<String> toolCodes = loadToolCodes(AgentJson.parseLongList(agent.getToolIdsJson()));
+        List<String> toolCodes = new ArrayList<>(loadToolCodes(AgentJsonUtil.parseLongList(agent.getToolIdsJson())));
+        List<AgentMcp> mcps = loadMcps(AgentJsonUtil.parseLongList(agent.getMcpIdsJson()));
+        List<AgentSkill> skills = loadSkills(AgentJsonUtil.parseLongList(agent.getSkillIdsJson()));
+        ensureMindmapToolCode(toolCodes, skills);
         List<ToolName> toolNames = new ArrayList<>(AgentToolMapping.mapCodes(toolCodes));
-        List<AgentMcp> mcps = loadMcps(AgentJson.parseLongList(agent.getMcpIdsJson()));
         if (!mcps.isEmpty()) {
             toolNames.add(ToolName.TOOL_MCP);
         }
-        List<AgentSkill> skills = loadSkills(AgentJson.parseLongList(agent.getSkillIdsJson()));
         if (!skills.isEmpty()) {
             toolNames.add(ToolName.TOOL_SKILL);
         }
@@ -124,7 +125,11 @@ public class AgentChatHarnessAssembler {
 
         List<ChatToolCallDTO> ragTools = new ArrayList<>();
         String knowledgeBlock = buildKnowledgeBlock(agent, userContent, onStatus, onTool, ragTools);
-        String systemPrompt = buildSystemPrompt(agent.getSystemPrompt(), knowledgeBlock, !skills.isEmpty());
+        FunctionToolBuildContext toolCtx = new FunctionToolBuildContext(agent, toolCodes, chatConfig, onStatus);
+        String toolPromptAppendix = functionToolProviderRegistry.systemPromptAppendix(toolCtx);
+        boolean htmlArtifactSkills = !skills.isEmpty() && !hasMindmapSkill(skills);
+        String systemPrompt = buildSystemPrompt(
+                agent.getSystemPrompt(), knowledgeBlock, htmlArtifactSkills, toolPromptAppendix);
 
         Path work = Path.of(workspace == null || workspace.isBlank() ? "./data/agent-harness" : workspace)
                 .toAbsolutePath().normalize();
@@ -170,14 +175,14 @@ public class AgentChatHarnessAssembler {
 
         emitStatus(onStatus, skills.isEmpty() ? "正在调用模型…" : "正在加载 Skill 并调用模型…");
 
-        List<FunctionTool> workflowTools = buildWorkflowTools(agent, chatConfig, onStatus);
+        List<FunctionTool> extraTools = functionToolProviderRegistry.buildAll(toolCtx);
         Map<String, String> toolLabels = loadToolLabels(toolCodes);
         toolLabels.putIfAbsent("skillread", "读取 Skill");
         toolLabels.putIfAbsent("skilllist", "列出 Skill");
         toolLabels.putIfAbsent("skillsearch", "搜索 Skill");
         toolLabels.putIfAbsent("skillrefresh", "刷新 Skill");
         toolLabels.putIfAbsent("knowledge_retrieve", "知识库检索");
-        for (FunctionTool t : workflowTools) {
+        for (FunctionTool t : extraTools) {
             toolLabels.putIfAbsent(t.name(), t.title());
         }
 
@@ -188,7 +193,7 @@ public class AgentChatHarnessAssembler {
                 toolNames,
                 ragTools,
                 toolLabels,
-                workflowTools,
+                extraTools,
                 builder.build());
     }
 
@@ -238,7 +243,8 @@ public class AgentChatHarnessAssembler {
             List<ToolName> toolNames,
             List<ChatToolCallDTO> ragTools,
             Map<String, String> toolLabels,
-            List<FunctionTool> workflowTools,
+            /** 工作流 / 导图等自定义 FunctionTool */
+            List<FunctionTool> extraTools,
             HarnessEngine engine
     ) {
     }
@@ -259,14 +265,17 @@ public class AgentChatHarnessAssembler {
         }
     }
 
-    private static String buildSystemPrompt(String base, String knowledgeBlock, boolean hasSkills) {
+    private static String buildSystemPrompt(String base, String knowledgeBlock,
+                                            boolean htmlArtifactSkills, String toolPromptAppendix) {
         StringBuilder sb = new StringBuilder();
         if (base != null && !base.isBlank()) {
             sb.append(base.trim());
         } else {
             sb.append("你是一个有用的智能助手。");
         }
-        if (hasSkills) {
+        if (toolPromptAppendix != null && !toolPromptAppendix.isBlank()) {
+            sb.append(toolPromptAppendix);
+        } else if (htmlArtifactSkills) {
             sb.append("\n\n## 输出要求（必须遵守）\n")
                     .append("- 先用 skillread 读取相关技能，再执行任务。\n")
                     .append("- 思考过程保持简短；不要把设计讨论、英文草稿写进最终回复正文。\n")
@@ -281,10 +290,35 @@ public class AgentChatHarnessAssembler {
         return sb.toString();
     }
 
+    /**
+     * 编辑页绑定导图或挂了导图 Skill 时，确保 toolCodes 含 mm_project_save，避免只读到 Skill 却无落库工具、回退成 HTML。
+     */
+    private static void ensureMindmapToolCode(List<String> toolCodes, List<AgentSkill> skills) {
+        if (toolCodes == null) {
+            return;
+        }
+        if (toolCodes.stream().anyMatch(MmProjectFunctionTool::isMindmapToolCode)) {
+            return;
+        }
+        Long bound = MmProjectChatContext.getProjectId();
+        boolean need = (bound != null && bound > 0) || hasMindmapSkill(skills);
+        if (need) {
+            toolCodes.add(MmProjectFunctionTool.CODE);
+        }
+    }
+
+    private static boolean hasMindmapSkill(List<AgentSkill> skills) {
+        if (skills == null || skills.isEmpty()) {
+            return false;
+        }
+        return skills.stream().anyMatch(s -> s != null
+                && MmProjectFunctionTool.SKILL_CODE.equalsIgnoreCase(s.getCode()));
+    }
+
     private String buildKnowledgeBlock(AgentAgent agent, String userQuery,
                                        Consumer<String> onStatus, Consumer<ChatToolCallDTO> onTool,
                                        List<ChatToolCallDTO> toolsOut) {
-        List<Long> knowledgeIds = AgentJson.parseLongList(agent.getKnowledgeIdsJson());
+        List<Long> knowledgeIds = AgentJsonUtil.parseLongList(agent.getKnowledgeIdsJson());
         if (knowledgeIds == null || knowledgeIds.isEmpty()) {
             return "";
         }
@@ -350,24 +384,6 @@ public class AgentChatHarnessAssembler {
             emitStatus(onStatus, "知识库检索失败");
             return "";
         }
-    }
-
-    private List<FunctionTool> buildWorkflowTools(AgentAgent agent, ChatConfig chatConfig,
-                                                  Consumer<String> onStatus) {
-        List<Long> ids = AgentJson.parseLongList(agent.getWorkflowIdsJson());
-        if (ids.isEmpty()) {
-            return List.of();
-        }
-        List<AgentWorkflow> list = workflowExecutor.listBoundWorkflows(ids);
-        if (list.isEmpty()) {
-            return List.of();
-        }
-        ChatModel chatModel = chatConfig.toChatModel();
-        List<FunctionTool> tools = new ArrayList<>();
-        for (AgentWorkflow wf : list) {
-            tools.add(new WorkflowFunctionTool(wf, workflowExecutor, chatModel, onStatus));
-        }
-        return tools;
     }
 
     private Map<String, String> loadToolLabels(List<String> toolCodes) {

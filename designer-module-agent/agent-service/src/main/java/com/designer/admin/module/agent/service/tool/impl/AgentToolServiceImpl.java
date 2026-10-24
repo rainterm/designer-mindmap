@@ -13,7 +13,7 @@ import com.designer.admin.module.agent.model.dto.tool.ToolSaveDTO;
 import com.designer.admin.module.agent.model.entity.tool.AgentTool;
 import com.designer.admin.module.agent.model.vo.tool.ToolVO;
 import com.designer.admin.module.agent.service.tool.AgentToolService;
-import com.designer.admin.module.agent.util.AgentTexts;
+import org.noear.solon.Utils;
 
 /**
  * 平台内置工具。
@@ -29,11 +29,11 @@ public class AgentToolServiceImpl implements AgentToolService {
     @Override
     public IPage<ToolVO> page(ToolQueryDTO query) {
         return toolMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentTool>()
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentTool::getName, query.getName())
                         .or()
                         .like(AgentTool::getCode, query.getName()))
-                .eq(AgentTexts.notBlank(query.getType()), AgentTool::getType, query.getType())
+                .eq(Utils.isNotBlank(query.getType()), AgentTool::getType, query.getType())
                 .eq(query.getStatus() != null, AgentTool::getStatus, query.getStatus())
                 .orderByAsc(AgentTool::getId))
                 .convert(this::toVo);

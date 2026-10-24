@@ -1,4 +1,4 @@
-# 智能体平台
+# AI 思维导图
 
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![JDK](https://img.shields.io/badge/JDK-25-orange.svg)](https://adoptium.net/temurin/releases/)
@@ -7,56 +7,52 @@
 
 ## 简介
 
-一套可自建、可扩展的**智能体平台**：配置多模型供应商，编排智能体与工作流，挂载知识库 / 工具 / MCP / Skill，提供管理端调试、商店、公开聊天页与开放 API。后端 Solon + MyBatis-Plus + Solon AI Harness，前端 Vue 3 + Naive UI + Vite，向量检索基于 Milvus。
+一套可自建的 **AI 思维导图** 应用：在画布上编辑导图，并用智能体按主题生成 / 扩展大纲后一键落库。后端 Solon + MyBatis-Plus + Solon AI Harness，前端 Vue 3 + Naive UI + Vite（画布基于 [simple-mind-map](https://github.com/wanglin2/mind-map)）。
 
-本项目基于开源脚手架 **designer-admin** 开发，继承其模块化单体、登录鉴权与后台基础能力，业务重心在智能体域。
+本项目基于开源 **[designer-agent](https://gitee.com/rainterm/designer-agent)** 二次开发开源：完整保留其智能体平台能力（多模型、知识库 RAG、工作流、MCP / Skill、公开聊天与开放 API），在此之上增加思维导图业务模块，并把导图助手与画布编辑打通。
 
 设计上坚持两条原则：
 
-- **简洁、可复用**：对话运行时、RAG、工作流节点、MCP / Skill 挂载收敛为公共能力；业务页只写差异；可变项走配置与后台表单，不写死在代码里。
-- **易扩展、可维护**：模块只依赖对方 `*-api`；工作流节点、模型供应商适配、内置工具按策略 / 注册表扩展；新增能力局部化，不改核心编排。
+- **简洁、可复用**：导图 CRUD、大纲解析、AI 落库工具收敛为公共能力；画布与对话页只写差异；可变项走配置与后台表单。
+- **易扩展、可维护**：模块只依赖对方 `*-api`；智能体工具按注册表扩展（如 `mm_project_save`）；新增能力局部化，不改核心编排。
 
 ## 界面预览
 
-![image-20261022154913774](docs/images/image-20261022154913774.png)
+![image-20261025003804502](docs/images/image-20261025003804502.png)
 
-![image-20261022155004225](docs/images/image-20261022155004225.png)
-
-![image-20261022155026303](docs/images/image-20261022155026303.png)
-
-![image-20261022155053253](docs/images/image-20261022155053253.png)
-
-![image-20261022155119056](docs/images/image-20261022155119056.png)
-
-![image-20261022155146830](docs/images/image-20261022155146830.png)
-
-![image-20261022155547646](docs/images/image-20261022155547646.png)
-
-![image-20261022155244140](docs/images/image-20261022155244140.png)
-
-![image-20261022155520843](docs/images/image-20261022155520843.png)
-
-![image-20261022155321534](docs/images/image-20261022155321534.png)
-
-![image-20261022155359579](docs/images/image-20261022155359579.png)
-
-![image-20261022155433887](docs/images/image-20261022155433887.png)
+![image-20261025003828416](docs/images/image-20261025003828416.png)
 
 ## 内置能力
 
 | 能力       | 说明                                                                 |
 | ---------- | -------------------------------------------------------------------- |
+| 思维导图   | 分类管理、画布编辑、主题 / 布局、导入导出、AI 生成与侧栏扩展           |
+| 导图助手   | 预置智能体 `mindmap`：对话整理 Markdown 大纲并调用工具落库            |
 | 模型供应商 | OpenAI 兼容 / Ollama 等，拉取远端模型列表，对话 / Embedding / Rerank |
-| 智能体     | 提示词、模型参数、工具 / MCP / Skill / 工作流 / 知识库编排，草稿与发布版本 |
+| 智能体     | 提示词、模型参数、工具 / MCP / Skill / 工作流 / 知识库编排，草稿与发布 |
 | 智能体商店 | 已发布智能体浏览与进入对话                                           |
 | 知识库 RAG | 文档切片、Embedding 索引、Milvus 检索，可选 Rerank                   |
 | 工作流     | 可视化编排，LLM / HTTP / 知识库 / 代码 / SQL / 条件 / 输出等节点     |
-| 工具       | 平台内置工具（网页搜索、HTTP、文件系统、网页抓取等）                 |
+| 工具       | 平台内置工具（含 `mm_project_save`、网页搜索、HTTP、文件系统等）     |
 | MCP        | stdio / SSE 接入，探测工具清单并挂载到对话                           |
-| Skill      | 手工编写或导入 Skill 包（解析 `SKILL.md`）                           |
+| Skill      | 手工编写或导入 Skill 包（含思维导图大纲 Skill）                      |
 | 会话对话   | 管理端调试、多轮记忆、SSE 流式输出、工具调用过程展示                 |
 | 公开访问   | 已发布智能体可开启公开链接，访客免登录聊天                           |
 | 开放 API   | OAuth2 Client Credentials；智能体列表 / 会话 / 工作流同步与 SSE 调用 |
+
+### 思维导图
+
+- **项目与分类**：树形分类、导图列表检索与批量删除；编辑页全屏画布。
+- **画布编辑**：多布局 / 主题，节点样式与备注；快捷键 Tab / Enter 增节点；拖拽与框选。
+- **导入导出**：支持 JSON / SMM / Markdown / XMind / 文本导入，以及 PNG / JSON / Markdown / XMind 导出。
+- **AI 生成**：列表页可对话新建导图；编辑页「AI 扩展」绑定当前 `projectId`，侧栏嵌入导图助手会话，模型调用 `mm_project_save` 后画布可即时刷新。
+- **大纲落库**：智能体输出 `# / ## / ###` Markdown 标题树，经 `MmProjectApi` 解析为节点 JSON 写入 `mm_project`。
+
+### 导图助手与 AI 落库
+
+- 种子智能体 **导图助手**（`code=mindmap`）：挂载工具 `mm_project_save` 与 Skill `mindmap-outline`。
+- 工具行为：有 `projectId`（或编辑页会话绑定）则覆盖更新，否则按大纲新建；返回项目摘要与编辑路径。
+- 跨模块只走 `mindmap-api`（`MmProjectApi`），智能体模块不直接依赖导图内部 entity。
 
 ### 模型供应商
 
@@ -85,13 +81,13 @@
 
 ### 工具 / MCP / Skill
 
-- **工具**：内置网页搜索、HTTP 请求、文件系统、网页抓取等，按 code 映射到 Harness 工具权限。
+- **工具**：内置网页搜索、HTTP 请求、文件系统、网页抓取、思维导图落库等，按 code 映射到 Harness 工具。
 - **MCP**：stdio / SSE 传输，保存前可按表单探测工具清单；对话时按智能体配置挂载。
 - **Skill**：手工维护内容，或导入 Skill 包解析 `SKILL.md`；运行时落盘到 Harness 工作区。
 
 ### 会话与接入
 
-- **管理端**：按智能体打开 / 新建会话，同步或 SSE 发送消息；调试会话与正式会话区分。
+- **管理端**：按智能体打开 / 新建会话，同步或 SSE 发送消息；调试会话与正式会话区分；导图编辑可携带 `mmProjectId`。
 - **公开页**：`/public/agent/chat`（前端路由），凭公开 token 访客对话。
 - **开放 API**（`/open-api/**`，OAuth2）：已发布智能体列表与详情、会话 CRUD、同步 / SSE 对话、工作流列表与执行。
 
@@ -109,16 +105,19 @@
 | 向量库      | Milvus                 | 2.5.x   | 知识库向量索引与检索                      |
 | 数据库      | MySQL                  | 8.0.13+ | 业务元数据（函数索引依赖 8.0.13+）        |
 | 缓存 / 会话 | Redis                  | 7       | 会话、限流、消息总线等                    |
-| 前端        | Vue 3 + Naive UI + Vite | 3.5 / 2.45 / 8 | 管理端与公开聊天页                   |
+| 前端        | Vue 3 + Naive UI + Vite | 3.5 / 2.45 / 8 | 管理端（含导图与智能体）             |
+| 导图画布    | simple-mind-map        | —       | 节点编辑、导入导出                        |
 
 ### 工程结构
 
+目录划分对齐 [designer-agent](https://gitee.com/rainterm/designer-agent)，并增加思维导图模块：
+
 ```
-designer-agent/
+designer-mindmap/
 ├── designer-common/                # 通用契约：Result / PageQuery / BaseEntity / 异常 / 工具
 ├── designer-framework/             # 鉴权、限流、日志、存储、消息、MyBatis 等基础设施
 ├── designer-module-system/         # 系统管理（用户、角色、菜单、文件、任务等）
-├── designer-module-agent/          # 智能体业务
+├── designer-module-agent/          # 智能体业务（继承自 designer-agent）
 │   ├── agent-api/
 │   └── agent-service/
 ├── designer-module-mindmap/        # 思维导图业务（本仓库核心）
@@ -126,23 +125,24 @@ designer-agent/
 │   └── mindmap-service/
 ├── designer-module-demo/           # 业务模块模板
 ├── designer-server/                # 启动组装：DesignerApp + app.yml
-├── designer-ui/admin-web/          # 管理端
-├── designer-ui/mindmap-web/        # 思维导图独立前端（SSO，:5176）
-├── sql/init/mysql/                 # 按模块组织的初始化 SQL（含 mindmap）
+├── designer-ui/admin-web/          # 管理端（modules/mindmap、modules/agent）
+├── sql/init/mysql/                 # 按模块组织的初始化 SQL（含 agent、mindmap）
 ├── deploy/                         # Docker 部署脚本（含 Milvus）
 └── docs/                           # 开发规范等文档
 ```
 
-智能体模块按业务域分包：`agent` / `session` / `provider` / `knowledge` / `workflow` / `tool` / `skill` / `mcp`；运行时公共能力在 `harness/`，工作流引擎在 `workflow/`。
+- 智能体模块按业务域分包：`agent` / `session` / `provider` / `knowledge` / `workflow` / `tool` / `skill` / `mcp`；运行时公共能力在 `harness/`，工作流引擎在 `workflow/`。
+- 思维导图模块：`controller` / `service` / `mapper` / `model`；对外契约在 `mindmap-api`（`MmProjectApi`）。
+- 管理端：`src/modules/mindmap` 为导图列表与全屏编辑；`src/modules/agent` 为智能体与会话；编辑页通过 iframe / 会话绑定对接导图助手。
 
-一次对话的典型路径：
+AI 生成导图的典型路径：
 
 ```
-Controller（管理端 / 公开 / 开放 API）
-    → AgentChatService（会话落库、流式事件）
-        → AgentChatHarnessAssembler（组装模型、工具、MCP、Skill、RAG）
-            → HarnessEngine（Solon AI）
-                → 模型供应商 / MCP / 内置工具 / Milvus 检索
+导图编辑页 / 会话页
+    → AgentSession（绑定 mmProjectId）
+        → Harness（挂载 MmProjectFunctionTool）
+            → MmProjectApi.createFromOutline / updateFromOutline
+                → 大纲解析 → mm_project 落库 → 前端刷新画布
 ```
 
 跨模块调用只走 `*Api`，避免把内部 entity / DTO 泄漏出去。
@@ -151,6 +151,8 @@ Controller（管理端 / 公开 / 开放 API）
 
 | 主题     | 做法                                                                 |
 | -------- | -------------------------------------------------------------------- |
+| AI ↔ 导图 | 会话上下文绑定 `mmProjectId`；工具按绑定态切换新建 / 更新 Schema       |
+| 大纲模型 | Markdown 标题层级 → 节点树 JSON，与画布 `content` 统一                 |
 | 版本发布 | 智能体 / 工作流均草稿与正式分离；发布写历史快照，可回滚覆盖草稿       |
 | RAG      | Embedding 可插拔供应商；向量存 Milvus；可选 Rerank 扩召回再截断       |
 | 工作流   | 节点 Handler 注册表；变量与代码执行有独立 support，节点只写差异逻辑   |
@@ -181,6 +183,7 @@ Controller（管理端 / 公开 / 开放 API）
 | [docs/SSO.md](docs/SSO.md)                   | 单点登录流程（继承自脚手架）               |
 | [deploy/](deploy)                            | Docker 部署与 Nginx / Dockerfile           |
 | [designer-module-demo](designer-module-demo) | 业务模块模板                               |
+| [designer-agent](https://gitee.com/rainterm/designer-agent) | 上游智能体平台开源仓库           |
 
 ## 快速开始（本地开发）
 
@@ -234,7 +237,7 @@ DB_HOST=127.0.0.1 DB_PORT=3306 DB_USER=root DB_PASSWORD=root DB_NAME=designer_mi
   bash sql/init/mysql/00-run-init.sh
 ```
 
-初始化顺序：`_base` → `system` → `demo` → `agent`。种子中含演示供应商与 MCP 占位，请按需填写真实 API Key。
+初始化顺序：`_base` → `system` → `demo` → `agent` → `mindmap`。种子中含演示供应商、导图助手与 MCP 占位，请按需填写真实 API Key。
 
 ### 3. 启动后端
 
@@ -261,6 +264,8 @@ pnpm run build
 ```
 
 开发环境已配置 Vite 代理，`/admin-api`、`/app-api`、`/open-api` 转发到 `http://localhost:8080`。
+
+登录后进入 **思维导图 → 导图项目**；编辑页可点「AI 扩展」调用导图助手。使用 AI 前请在 **模型供应商** 中配置可用对话模型。
 
 ### 默认账号
 
@@ -323,6 +328,11 @@ vim .env
 - 修改 `.env` 默认密码与 `VAULT_PASSWORD`；为 MySQL / Redis / Milvus 配置强认证。
 - 多实例：会话与限流共用 Redis；知识库共用同一 Milvus；各实例 Quartz `instanceId` 须不同。
 - 健康检查：`GET /admin-api/system/health`。
+
+## 致谢
+
+- 智能体平台：[designer-agent](https://gitee.com/rainterm/designer-agent)
+- 导图画布：[simple-mind-map](https://github.com/wanglin2/mind-map)
 
 ## 许可证
 

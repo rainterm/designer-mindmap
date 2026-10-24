@@ -1,6 +1,8 @@
 package com.designer.admin.module.agent.workflow.activity;
 
-import com.designer.admin.module.agent.util.AgentJson;
+import com.designer.admin.module.agent.model.dto.workflow.node.OutputNodeConfigDTO;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import org.noear.solon.Utils;
 import org.noear.solon.annotation.Component;
 
 import java.util.LinkedHashSet;
@@ -9,8 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import static com.designer.admin.module.agent.workflow.support.WorkflowVarSupport.applyVars;
-import static com.designer.admin.module.agent.workflow.support.WorkflowVarSupport.parseCfg;
-import static com.designer.admin.module.agent.workflow.support.WorkflowVarSupport.str;
+
 /**
  * 输出活动节点执行。
  *
@@ -19,11 +20,20 @@ import static com.designer.admin.module.agent.workflow.support.WorkflowVarSuppor
 @Component
 public class WorkflowOutputActivity {
 
-    /** 输出节点：按模板组装最终结果 */
+    /**
+     * 按模板组装最终结果；type=table 时尝试把 JSON 数组渲染为 Markdown 表格。
+     *
+     * @param config 节点 JSON 配置（type / template）；兼容纯文本配置
+     * @param vars   工作流变量表
+     * @return 渲染后的输出文本
+     */
     public String runOutput(String config, Map<String, String> vars) {
-        Map<String, Object> cfg = parseCfg(config);
-        String type = str(cfg.get("type"), "text").toLowerCase(Locale.ROOT);
-        String template = str(cfg.get("template"), "");
+        OutputNodeConfigDTO cfg = AgentJsonUtil.parse(config, OutputNodeConfigDTO.class);
+        if (cfg == null) {
+            cfg = new OutputNodeConfigDTO();
+        }
+        String type = Utils.isBlank(cfg.getType()) ? "text" : cfg.getType().toLowerCase(Locale.ROOT);
+        String template = cfg.getTemplate() == null ? "" : cfg.getTemplate();
         if (template.isBlank() && config != null && !config.trim().startsWith("{")) {
             template = config.trim();
         }
@@ -39,6 +49,9 @@ public class WorkflowOutputActivity {
 
     /**
      * 将 JSON 数组字符串渲染为 Markdown 表格；非数组或解析失败时原样返回。
+     *
+     * @param maybeJson 可能为 JSON 数组的文本
+     * @return Markdown 表格或原文
      */
     private String toMarkdownTable(String maybeJson) {
         if (maybeJson == null) {
@@ -50,7 +63,7 @@ public class WorkflowOutputActivity {
         }
         List<Map<String, Object>> rows;
         try {
-            rows = AgentJson.parseMapList(t);
+            rows = AgentJsonUtil.parseMapList(t);
         } catch (Exception e) {
             return maybeJson;
         }

@@ -23,7 +23,7 @@ import com.designer.admin.common.util.JsonUtil;
 import com.designer.admin.framework.satoken.LoginHelper;
 import com.designer.admin.module.agent.constant.session.AgentSseEvent;
 import com.designer.admin.module.agent.constant.workflow.WorkflowNodeType;
-import com.designer.admin.module.agent.harness.AgentAsyncExecutor;
+import com.designer.admin.module.agent.util.AgentAsyncExecutor;
 import com.designer.admin.module.agent.mapper.workflow.AgentWorkflowMapper;
 import com.designer.admin.module.agent.mapper.workflow.AgentWorkflowVersionMapper;
 import com.designer.admin.module.agent.model.dto.workflow.WorkflowQueryDTO;
@@ -38,10 +38,10 @@ import com.designer.admin.module.agent.service.workflow.AgentWorkflowService;
 import com.designer.admin.module.agent.workflow.AgentWorkflowExecutor;
 import com.designer.admin.module.agent.workflow.AgentWorkflowStartInputs;
 import com.designer.admin.module.agent.workflow.WorkflowRunListener;
-import com.designer.admin.module.agent.util.AgentEntitySupport;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentSseSupport;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.util.AgentEntityUtil;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import com.designer.admin.module.agent.util.AgentSseUtil;
+import org.noear.solon.Utils;
 
 /**
  * 工作流管理
@@ -65,7 +65,7 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
     @Override
     public IPage<WorkflowVO> page(WorkflowQueryDTO query) {
         IPage<AgentWorkflow> page = workflowMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentWorkflow>()
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentWorkflow::getName, query.getName())
                         .or()
                         .like(AgentWorkflow::getCode, query.getName()))
@@ -131,7 +131,7 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
         AgentWorkflow entity = toEntity(dto);
         entity.setId(existing.getId());
         entity.setVersion(existing.getVersion());
-        entity.setDraftVersion(AgentEntitySupport.bumpDraftVersion(existing.getDraftVersion()));
+        entity.setDraftVersion(AgentEntityUtil.bumpDraftVersion(existing.getDraftVersion()));
         // 草稿列：有图则更新；无图（列表页基本信息编辑）沿用现有草稿
         if (dto.getNodes() == null) {
             entity.setDraftNodesJson(draftNodesOf(existing));
@@ -150,7 +150,7 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
     @Transaction
     public WorkflowVO publish(Long id) {
         AgentWorkflow existing = require(id);
-        int nextVersion = AgentEntitySupport.nextPublishVersion(existing.getVersion());
+        int nextVersion = AgentEntityUtil.nextPublishVersion(existing.getVersion());
         // 待发布内容：优先草稿；草稿为空（旧数据未回填）时退回正式内容
         String nodesJson = draftNodesOf(existing);
         String edgesJson = draftEdgesOf(existing);
@@ -211,8 +211,8 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
             throw new BizException("历史版本不存在");
         }
         WorkflowVersionVO vo = toVersionVo(row);
-        vo.setNodes(AgentJson.parseMapList(row.getNodesJson()));
-        vo.setEdges(AgentJson.parseMapList(row.getEdgesJson()));
+        vo.setNodes(AgentJsonUtil.parseMapList(row.getNodesJson()));
+        vo.setEdges(AgentJsonUtil.parseMapList(row.getEdgesJson()));
         return vo;
     }
 
@@ -230,7 +230,7 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
         existing.setDraftNodesJson(snap.getNodesJson());
         existing.setDraftEdgesJson(snap.getEdgesJson());
         // draftVersion 递增以标识草稿发生了一次内容变更
-        existing.setDraftVersion(AgentEntitySupport.bumpDraftVersion(existing.getDraftVersion()));
+        existing.setDraftVersion(AgentEntityUtil.bumpDraftVersion(existing.getDraftVersion()));
         workflowMapper.updateById(existing);
         return toVo(workflowMapper.selectById(id));
     }
@@ -240,7 +240,13 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
         if (ids == null || ids.isEmpty()) {
             return;
         }
-        AgentEntitySupport.deleteBatchIds(workflowMapper, ids);
+        AgentEntityUtil.deleteBatchIds(workflowMapper, ids);
+    }
+
+    @Override
+    public WorkflowRunResult run(Long id, Map<String, Object> params, Long agentId) {
+        require(id);
+        return workflowExecutor.run(id, params, agentId);
     }
 
     @Override
@@ -249,12 +255,22 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
     }
 
     @Override
+    public WorkflowRunResult runPublished(Long id, Map<String, Object> params, Long agentId) {
+        requirePublished(id);
+        return workflowExecutor.run(id, params, agentId, null, false);
+    }
+
+    @Override
     public SseEmitter runPublishedStream(Long id, Map<String, Object> params, Long agentId) {
         return startRunStream(id, params, agentId, false);
     }
 
     private SseEmitter startRunStream(Long id, Map<String, Object> params, Long agentId, boolean useDraft) {
-        require(id);
+        if (useDraft) {
+            require(id);
+        } else {
+            requirePublished(id);
+        }
         AtomicBoolean closed = new AtomicBoolean(false);
         final SseEmitter[] box = new SseEmitter[1];
         SseEmitter emitter = new SseEmitter(-1L)
@@ -276,42 +292,42 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
                 public void onStatus(String status) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("status", status == null ? "" : status);
-                    AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.STATUS.getCode(), JsonUtil.toJson(m));
+                    AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.STATUS.getCode(), JsonUtil.toJson(m));
                 }
 
                 @Override
                 public void onStep(WorkflowRunResult.Step step) {
-                    AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.STEP.getCode(), JsonUtil.toJson(step));
+                    AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.STEP.getCode(), JsonUtil.toJson(step));
                 }
 
                 @Override
                 public void onAnswerDelta(String delta) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("delta", delta == null ? "" : delta);
-                    AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.DELTA.getCode(), JsonUtil.toJson(m));
+                    AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.DELTA.getCode(), JsonUtil.toJson(m));
                 }
 
                 @Override
                 public void onThinkingDelta(String delta) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("delta", delta == null ? "" : delta);
-                    AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.THINKING.getCode(), JsonUtil.toJson(m));
+                    AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.THINKING.getCode(), JsonUtil.toJson(m));
                 }
 
                 @Override
                 public void onError(String message) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("msg", message == null ? "执行失败" : message);
-                    AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(m));
+                    AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(m));
                 }
             };
             WorkflowRunResult result = workflowExecutor.run(id, params, agentId, listener, useDraft);
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(result));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(result));
         } catch (Exception e) {
             log.warn("工作流 SSE 试跑失败 id={}: {}", id, e.getMessage());
             Map<String, Object> err = new LinkedHashMap<>();
             err.put("msg", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
         } finally {
             if (!closed.get()) {
                 try {
@@ -324,20 +340,20 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
     }
 
     private void validate(WorkflowSaveDTO dto, Long excludeId) {
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("工作流名称不能为空");
         }
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             throw new BizException("工作流编码不能为空");
         }
         Long cnt = workflowMapper.selectCount(new LambdaQueryWrapper<AgentWorkflow>()
                 .eq(AgentWorkflow::getCode, dto.getCode().trim())
                 .ne(excludeId != null, AgentWorkflow::getId, excludeId));
-        AgentEntitySupport.assertCodeUnique(cnt, "工作流编码已存在");
+        AgentEntityUtil.assertCodeUnique(cnt, "工作流编码已存在");
     }
 
     private AgentWorkflow require(Long id) {
-        return AgentEntitySupport.require(workflowMapper.selectById(id), "工作流不存在");
+        return AgentEntityUtil.require(workflowMapper.selectById(id), "工作流不存在");
     }
 
     private AgentWorkflow requirePublished(Long id) {
@@ -357,8 +373,8 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
         e.setName(dto.getName().trim());
         e.setCode(dto.getCode().trim());
         e.setDescription(dto.getDescription() == null ? "" : dto.getDescription());
-        e.setNodesJson(AgentJson.toJson(normalizeNodes(dto.getNodes())));
-        e.setEdgesJson(AgentJson.toJson(normalizeEdges(dto.getEdges())));
+        e.setNodesJson(AgentJsonUtil.toJson(normalizeNodes(dto.getNodes())));
+        e.setEdgesJson(AgentJsonUtil.toJson(normalizeEdges(dto.getEdges())));
         e.setStatus(dto.getStatus());
         e.setRemark(dto.getRemark() == null ? "" : dto.getRemark());
         return e;
@@ -366,14 +382,14 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
 
     private WorkflowVO toVo(AgentWorkflow e) {
         // 编辑/试跑面向草稿：优先草稿列；为空（旧数据）退回正式列
-        List<Map<String, Object>> nodes = AgentJson.parseMapList(draftNodesOf(e));
-        List<Map<String, Object>> edges = AgentJson.parseMapList(draftEdgesOf(e));
+        List<Map<String, Object>> nodes = AgentJsonUtil.parseMapList(draftNodesOf(e));
+        List<Map<String, Object>> edges = AgentJsonUtil.parseMapList(draftEdgesOf(e));
         return fillWorkflowVo(e, nodes, edges);
     }
 
     /** 开放接口列表：不含图，避免泄漏草稿与大图；仍返回开始节点入参 */
     private WorkflowVO toPublishedSummaryVo(AgentWorkflow e) {
-        List<Map<String, Object>> nodes = AgentJson.parseMapList(e.getNodesJson());
+        List<Map<String, Object>> nodes = AgentJsonUtil.parseMapList(e.getNodesJson());
         WorkflowVO vo = fillWorkflowVo(e, List.of(), List.of());
         vo.setNodeCount(nodes.size());
         vo.setStartInputs(toStartInputVos(AgentWorkflowStartInputs.parseFromNodes(nodes)));
@@ -382,8 +398,8 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
 
     /** 开放接口详情：正式 nodes/edges */
     private WorkflowVO toPublishedVo(AgentWorkflow e) {
-        List<Map<String, Object>> nodes = AgentJson.parseMapList(e.getNodesJson());
-        List<Map<String, Object>> edges = AgentJson.parseMapList(e.getEdgesJson());
+        List<Map<String, Object>> nodes = AgentJsonUtil.parseMapList(e.getNodesJson());
+        List<Map<String, Object>> edges = AgentJsonUtil.parseMapList(e.getEdgesJson());
         return fillWorkflowVo(e, nodes, edges);
     }
 
@@ -423,12 +439,12 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
 
     /** 草稿节点图；为空（未回填的旧数据）时退回已发布图 */
     private static String draftNodesOf(AgentWorkflow e) {
-        return AgentTexts.notBlank(e.getDraftNodesJson()) ? e.getDraftNodesJson() : e.getNodesJson();
+        return Utils.isNotBlank(e.getDraftNodesJson()) ? e.getDraftNodesJson() : e.getNodesJson();
     }
 
     /** 草稿连线图；为空（未回填的旧数据）时退回已发布图 */
     private static String draftEdgesOf(AgentWorkflow e) {
-        return AgentTexts.notBlank(e.getDraftEdgesJson()) ? e.getDraftEdgesJson() : e.getEdgesJson();
+        return Utils.isNotBlank(e.getDraftEdgesJson()) ? e.getDraftEdgesJson() : e.getEdgesJson();
     }
 
     private WorkflowVersionVO toVersionVo(AgentWorkflowVersion e) {
@@ -458,7 +474,7 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
             String type = strOr(n.get("type"), "llm");
             row.put("type", type);
             row.put("name", strOr(n.get("name"), "节点" + (i + 1)));
-            row.put("config", AgentJson.configAsString(n.get("config")));
+            row.put("config", AgentJsonUtil.configAsString(n.get("config")));
             row.put("outputVar", WorkflowNodeType.OUTPUT.eqIgnoreCase(type) ? "" : strOr(n.get("outputVar"), ""));
             row.put("x", numberOr(n.get("x"), 80 + (i % 4) * 220));
             row.put("y", numberOr(n.get("y"), 120 + (i / 4) * 140));

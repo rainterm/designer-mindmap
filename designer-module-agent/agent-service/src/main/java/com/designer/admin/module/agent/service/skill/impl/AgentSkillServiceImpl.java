@@ -15,9 +15,9 @@ import com.designer.admin.module.agent.model.dto.skill.SkillSaveDTO;
 import com.designer.admin.module.agent.model.entity.skill.AgentSkill;
 import com.designer.admin.module.agent.model.vo.skill.SkillVO;
 import com.designer.admin.module.agent.service.skill.AgentSkillService;
-import com.designer.admin.module.agent.util.AgentEntitySupport;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.util.AgentEntityUtil;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import org.noear.solon.Utils;
 
 /**
  * Skill 管理
@@ -33,7 +33,7 @@ public class AgentSkillServiceImpl implements AgentSkillService {
     @Override
     public IPage<SkillVO> page(SkillQueryDTO query) {
         IPage<AgentSkill> page = skillMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentSkill>()
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentSkill::getName, query.getName())
                         .or()
                         .like(AgentSkill::getCode, query.getName()))
@@ -82,10 +82,10 @@ public class AgentSkillServiceImpl implements AgentSkillService {
 
     @Override
     public SkillVO importPackage(SkillImportDTO payload) {
-        if (payload == null || (!AgentTexts.notBlank(payload.getContent()) && !AgentTexts.notBlank(payload.getPackageName()))) {
+        if (payload == null || (Utils.isBlank(payload.getContent()) && Utils.isBlank(payload.getPackageName()))) {
             throw new BizException("压缩包无效");
         }
-        if (!AgentTexts.notBlank(payload.getCode())) {
+        if (Utils.isBlank(payload.getCode())) {
             throw new BizException("Skill 编码不能为空");
         }
         AgentSkill exists = skillMapper.selectOne(new LambdaQueryWrapper<AgentSkill>()
@@ -94,10 +94,10 @@ public class AgentSkillServiceImpl implements AgentSkillService {
         if (exists != null) {
             SkillSaveDTO dto = new SkillSaveDTO();
             dto.setId(exists.getId());
-            dto.setName(AgentTexts.notBlank(payload.getName()) ? payload.getName() : exists.getName());
+            dto.setName(Utils.isNotBlank(payload.getName()) ? payload.getName() : exists.getName());
             dto.setCode(payload.getCode());
-            dto.setDescription(AgentTexts.notBlank(payload.getDescription()) ? payload.getDescription() : exists.getDescription());
-            dto.setContent(AgentTexts.notBlank(payload.getContent()) ? payload.getContent() : exists.getContent());
+            dto.setDescription(Utils.isNotBlank(payload.getDescription()) ? payload.getDescription() : exists.getDescription());
+            dto.setContent(Utils.isNotBlank(payload.getContent()) ? payload.getContent() : exists.getContent());
             dto.setStatus(exists.getStatus());
             dto.setSourceType(SkillSourceType.PACKAGE.getCode());
             dto.setPackageName(payload.getPackageName());
@@ -125,24 +125,24 @@ public class AgentSkillServiceImpl implements AgentSkillService {
         if (ids == null || ids.isEmpty()) {
             return;
         }
-        AgentEntitySupport.deleteBatchIds(skillMapper, ids);
+        AgentEntityUtil.deleteBatchIds(skillMapper, ids);
     }
 
     private void validate(SkillSaveDTO dto, Long excludeId) {
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("Skill 名称不能为空");
         }
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             throw new BizException("Skill 编码不能为空");
         }
         Long cnt = skillMapper.selectCount(new LambdaQueryWrapper<AgentSkill>()
                 .eq(AgentSkill::getCode, dto.getCode().trim())
                 .ne(excludeId != null, AgentSkill::getId, excludeId));
-        AgentEntitySupport.assertCodeUnique(cnt, "Skill 编码已存在");
+        AgentEntityUtil.assertCodeUnique(cnt, "Skill 编码已存在");
     }
 
     private AgentSkill require(Long id) {
-        return AgentEntitySupport.require(skillMapper.selectById(id), "Skill 不存在");
+        return AgentEntityUtil.require(skillMapper.selectById(id), "Skill 不存在");
     }
 
     private AgentSkill toEntity(SkillSaveDTO dto) {
@@ -153,12 +153,12 @@ public class AgentSkillServiceImpl implements AgentSkillService {
         e.setDescription(dto.getDescription() == null ? "" : dto.getDescription());
         e.setContent(dto.getContent() == null ? "" : dto.getContent());
         String packageName = dto.getPackageName() == null ? "" : dto.getPackageName();
-        e.setSourceType(AgentTexts.notBlank(dto.getSourceType())
+        e.setSourceType(Utils.isNotBlank(dto.getSourceType())
                 ? dto.getSourceType()
-                : (AgentTexts.notBlank(packageName) ? SkillSourceType.PACKAGE.getCode() : SkillSourceType.MANUAL.getCode()));
+                : (Utils.isNotBlank(packageName) ? SkillSourceType.PACKAGE.getCode() : SkillSourceType.MANUAL.getCode()));
         e.setPackageName(packageName);
         e.setPackageSize(dto.getPackageSize() == null ? 0L : dto.getPackageSize());
-        e.setFilesJson(AgentJson.toJson(dto.getFiles() == null ? List.of() : dto.getFiles()));
+        e.setFilesJson(AgentJsonUtil.toJson(dto.getFiles() == null ? List.of() : dto.getFiles()));
         e.setSkillPath(dto.getSkillPath() == null ? "" : dto.getSkillPath());
         e.setStatus(dto.getStatus());
         return e;
@@ -174,7 +174,7 @@ public class AgentSkillServiceImpl implements AgentSkillService {
         vo.setSourceType(e.getSourceType());
         vo.setPackageName(e.getPackageName());
         vo.setPackageSize(e.getPackageSize());
-        vo.setFiles(AgentJson.parseStringList(e.getFilesJson()));
+        vo.setFiles(AgentJsonUtil.parseStringList(e.getFilesJson()));
         vo.setSkillPath(e.getSkillPath());
         vo.setStatus(e.getStatus());
         vo.setCreateTime(e.getCreateTime());

@@ -10,6 +10,20 @@
       </ul>
     </section>
     <section class="block">
+      <div class="block-title">备注</div>
+      <p v-if="!hasSelection" class="hint">先点选画布上的节点，再编辑备注</p>
+      <n-input
+        v-else
+        class="note-input"
+        type="textarea"
+        :value="note"
+        :rows="3"
+        maxlength="2000"
+        placeholder="备注（可选）"
+        @update:value="(v) => emit('note-change', v || '')"
+      />
+    </section>
+    <section class="block">
       <div class="block-title">外观主题</div>
       <div class="theme-grid">
         <button
@@ -81,15 +95,6 @@
         >
           {{ model.fontWeight === 'bold' ? '已加粗' : '加粗文字' }}
         </n-button>
-        <n-input
-          class="note-input"
-          type="textarea"
-          :value="note"
-          :rows="2"
-          maxlength="200"
-          placeholder="备注（可选）"
-          @update:value="(v) => emit('note-change', v || '')"
-        />
       </template>
     </section>
   </div>
@@ -295,6 +300,6 @@ function toggleBold() {
   outline-offset: 1px;
 }
 .note-input {
-  margin-top: 10px;
+  width: 100%;
 }
 </style>

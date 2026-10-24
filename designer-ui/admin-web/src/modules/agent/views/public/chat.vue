@@ -117,6 +117,7 @@
                     :sources="knowledgeSourcesOf(m)"
                   />
                 </template>
+                <MindmapToolLink v-if="!m.streaming" :tools="m.tools" />
                 <div v-if="m.streaming" class="msg-loading">{{ streamStatus(m) }}</div>
               </div>
               <div v-else class="msg-bubble">
@@ -177,6 +178,7 @@ import {
 } from '@/modules/agent/api'
 import AgentTraceTimeline from '@/modules/agent/components/AgentTraceTimeline.vue'
 import HtmlArtifactList from '@/modules/agent/components/HtmlArtifactList.vue'
+import MindmapToolLink from '@/modules/agent/components/MindmapToolLink.vue'
 import KnowledgeSourceFooter from '@/modules/agent/components/KnowledgeSourceFooter.vue'
 import {
   appendThinkingDelta,

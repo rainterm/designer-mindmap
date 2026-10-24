@@ -293,4 +293,7 @@ INSERT INTO `agent_tool` (`id`, `name`, `code`, `type`, `description`, `schema_j
  1, 'system', NOW(), 'system', NOW()),
 (4, '网页抓取', 'browser', 'builtin', '抓取网页内容（降级为 webfetch）',
  '{\n  "type": "object",\n  "properties": {\n    "url": { "type": "string" }\n  },\n  "required": ["url"]\n}',
+ 1, 'system', NOW(), 'system', NOW()),
+(5, '保存思维导图', 'mm_project_save', 'builtin', '按 Markdown 大纲保存思维导图：有 projectId 则更新，否则新建',
+ '{\n  "type": "object",\n  "properties": {\n    "outline": { "type": "string" },\n    "name": { "type": "string" },\n    "projectId": { "type": "string" },\n    "categoryId": { "type": "string" }\n  },\n  "required": ["outline"]\n}',
  1, 'system', NOW(), 'system', NOW());

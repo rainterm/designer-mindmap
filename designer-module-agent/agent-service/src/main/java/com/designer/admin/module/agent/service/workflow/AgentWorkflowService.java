@@ -2,6 +2,7 @@ package com.designer.admin.module.agent.service.workflow;
 
 import com.designer.admin.module.agent.model.dto.workflow.WorkflowQueryDTO;
 import com.designer.admin.module.agent.model.dto.workflow.WorkflowSaveDTO;
+import com.designer.admin.module.agent.model.vo.workflow.WorkflowRunResult;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowVO;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowVersionVO;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -117,6 +118,16 @@ public interface AgentWorkflowService {
     void remove(List<Long> ids);
 
     /**
+     * 同步试跑（优先草稿图）。
+     *
+     * @param id      工作流 ID
+     * @param params  开始节点参数，可空
+     * @param agentId 可选：借用智能体模型，可空
+     * @return 整包执行结果
+     */
+    WorkflowRunResult run(Long id, Map<String, Object> params, Long agentId);
+
+    /**
      * SSE 试跑：event = status / step / delta / thinking / done / error（优先草稿图）。
      *
      * @param id      工作流 ID
@@ -125,6 +136,16 @@ public interface AgentWorkflowService {
      * @return SSE 发射器
      */
     SseEmitter runStream(Long id, Map<String, Object> params, Long agentId);
+
+    /**
+     * 同步执行已发布图（开放接口）。
+     *
+     * @param id      工作流 ID
+     * @param params  开始节点参数，可空
+     * @param agentId 可选：借用智能体模型，可空
+     * @return 整包执行结果
+     */
+    WorkflowRunResult runPublished(Long id, Map<String, Object> params, Long agentId);
 
     /**
      * SSE 执行已发布图（开放接口）。

@@ -14,7 +14,6 @@ import com.designer.admin.module.agent.model.vo.workflow.WorkflowRunResult;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowVO;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowVersionVO;
 import com.designer.admin.module.agent.service.workflow.AgentWorkflowService;
-import com.designer.admin.module.agent.workflow.AgentWorkflowExecutor;
 import org.noear.solon.annotation.Body;
 import org.noear.solon.annotation.Controller;
 import org.noear.solon.annotation.Delete;
@@ -48,8 +47,6 @@ public class AgentWorkflowController {
 
     @Inject
     private AgentWorkflowService workflowService;
-    @Inject
-    private AgentWorkflowExecutor workflowExecutor;
 
     @Get
     @Mapping("/page")
@@ -111,7 +108,7 @@ public class AgentWorkflowController {
     public Result<WorkflowRunResult> run(@NotNull(message = "ID不能为空") Long id, @Body @Validated WorkflowRunDTO dto) {
         Long agentId = dto == null ? null : dto.getAgentId();
         Map<String, Object> params = dto == null ? null : dto.getParams();
-        return Result.ok(workflowExecutor.run(id, params, agentId));
+        return Result.ok(workflowService.run(id, params, agentId));
     }
 
     @Post

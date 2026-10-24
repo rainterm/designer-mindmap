@@ -79,19 +79,9 @@ public class MmProjectController {
     @ApiOperation(value = "删除导图项目")
     @OperLog(title = "思维导图", businessType = BusinessType.DELETE)
     @SaCheckPermission("mindmap:project:remove")
-    public Result<Void> remove(String ids) {
-        projectService.remove(parseIds(ids));
+    public Result<Void> remove(List<Long> ids) {
+        projectService.remove(ids);
         return Result.ok();
     }
 
-    private List<Long> parseIds(String ids) {
-        if (ids == null || ids.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(ids.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(Long::valueOf)
-                .collect(Collectors.toList());
-    }
 }

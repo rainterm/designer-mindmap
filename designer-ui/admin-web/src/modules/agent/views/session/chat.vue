@@ -1,7 +1,10 @@
 <template>
-  <div class="page-container session-chat" :class="{ 'is-standalone': standalone }">
+  <div
+    class="page-container session-chat"
+    :class="{ 'is-standalone': standalone, 'is-embed': embed }"
+  >
     <div class="chat-shell">
-      <aside class="chat-side">
+      <aside v-if="!embed" class="chat-side">
         <div class="side-top">
           <div class="side-agent-row">
             <div class="side-agent">
@@ -112,6 +115,11 @@
                     :sources="knowledgeSourcesOf(m)"
                   />
                 </template>
+                <MindmapToolLink
+                  v-if="!m.streaming"
+                  :tools="m.tools"
+                  :current-project-id="boundMmProjectId"
+                />
                 <div v-if="m.streaming" class="msg-loading">{{ streamStatus(m) }}</div>
               </div>
               <div v-else class="msg-bubble">
@@ -228,6 +236,7 @@ import {
 } from '@/modules/agent/api'
 import AgentTraceTimeline from '@/modules/agent/components/AgentTraceTimeline.vue'
 import HtmlArtifactList from '@/modules/agent/components/HtmlArtifactList.vue'
+import MindmapToolLink from '@/modules/agent/components/MindmapToolLink.vue'
 import KnowledgeSourceFooter from '@/modules/agent/components/KnowledgeSourceFooter.vue'
 import { isImageAttachment } from '@/modules/agent/utils/attachment'
 import {
@@ -238,12 +247,30 @@ import {
   stopThinkingRunning,
   upsertToolStep
 } from '@/modules/agent/utils/traceSteps'
+import {
+  extractMindmapSave,
+  notifyParentMindmapSaved
+} from '@/modules/agent/utils/mindmapToolLink'
 
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const standalone = computed(() => !!route.meta?.standalone)
+/** 侧边弹框嵌入：隐藏会话侧栏，仅保留对话区 */
+const embed = computed(() => {
+  const v = route.query.embed
+  return v === '1' || v === 'true' || v === true
+})
+/** 编辑页侧边对话绑定的导图 ID（只进系统上下文，不进用户文案） */
+const boundMmProjectId = ref(null)
+
+function sessionChatQuery(extra = {}) {
+  const q = { ...extra }
+  if (embed.value) q.embed = '1'
+  if (boundMmProjectId.value != null) q.projectId = String(boundMmProjectId.value)
+  return q
+}
 
 const session = ref(null)
 const sessionList = ref([])
@@ -451,7 +478,7 @@ async function handleUpload({ file, onFinish, onError }) {
 
 function switchSession(id) {
   if (String(id) === String(currentId.value) || sending.value || deletingId.value) return
-  router.replace({ path: '/agent/session/chat', query: { id } })
+  router.replace({ path: '/agent/session/chat', query: sessionChatQuery({ id }) })
 }
 
 function confirmDeleteSession(item) {
@@ -476,7 +503,7 @@ async function handleDeleteSession(item) {
     if (!wasCurrent) return
     const next = sessionList.value[0]
     if (next?.id) {
-      router.replace({ path: '/agent/session/chat', query: { id: next.id } })
+      router.replace({ path: '/agent/session/chat', query: sessionChatQuery({ id: next.id }) })
     } else if (agentId) {
       const res = await createSession({
         agentId,
@@ -484,7 +511,10 @@ async function handleDeleteSession(item) {
       })
       if (res.data?.id) {
         await loadSessionList(agentId)
-        router.replace({ path: '/agent/session/chat', query: { id: res.data.id } })
+        router.replace({
+          path: '/agent/session/chat',
+          query: sessionChatQuery({ id: res.data.id })
+        })
       } else {
         goBack()
       }
@@ -512,7 +542,7 @@ async function handleNewSession() {
       return
     }
     await loadSessionList(session.value.agentId)
-    router.replace({ path: '/agent/session/chat', query: { id: created.id } })
+    router.replace({ path: '/agent/session/chat', query: sessionChatQuery({ id: created.id }) })
   } catch (e) {
     message.error(e?.message || '创建会话失败')
   } finally {
@@ -588,6 +618,8 @@ async function handleSend() {
   }
 
   try {
+    const streamExtra =
+      boundMmProjectId.value != null ? { mmProjectId: boundMmProjectId.value } : {}
     const done = await sendMessageStream(
       session.value.id,
       text,
@@ -626,6 +658,10 @@ async function handleSend() {
             const label = tool?.toolLabel || tool?.toolName || '工具'
             m.statusText = tool?.phase === 'start' ? `正在调用「${label}」…` : '工具已完成，继续生成…'
           })
+          if (embed.value) {
+            const saved = extractMindmapSave(tool)
+            if (saved) notifyParentMindmapSaved(saved)
+          }
           await scrollBottom()
         },
         onStatus: (status) => {
@@ -639,7 +675,9 @@ async function handleSend() {
         }
       },
       undefined,
-      attachments
+      attachments,
+      false,
+      streamExtra
     )
 
     if (done?.user) {
@@ -694,6 +732,51 @@ async function handleSend() {
   }
 }
 
+function mmProjectBindKey(sessionId) {
+  return `admin-agent:mm-project:${sessionId}`
+}
+
+function applyHintFromQuery() {
+  const sid = route.query.id
+  const pid = route.query.projectId
+  if (pid != null && pid !== '') {
+    const n = Number(pid)
+    if (Number.isFinite(n) && n > 0) {
+      boundMmProjectId.value = n
+      if (sid != null && sid !== '') {
+        try {
+          sessionStorage.setItem(mmProjectBindKey(sid), String(n))
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } else if (boundMmProjectId.value == null && sid != null && sid !== '') {
+    try {
+      const cached = sessionStorage.getItem(mmProjectBindKey(sid))
+      const n = cached != null ? Number(cached) : NaN
+      if (Number.isFinite(n) && n > 0) boundMmProjectId.value = n
+    } catch {
+      /* ignore */
+    }
+  }
+  const hint = route.query.hint
+  const q = { ...route.query }
+  let changed = false
+  if (hint != null && hint !== '') {
+    const text = String(hint).trim()
+    if (text && !draft.value.trim()) draft.value = text
+    delete q.hint
+    changed = true
+  }
+  // embed 编辑页需保留 projectId，否则 iframe 内路由刷新后丢失绑定、无法落库当前导图
+  if (!embed.value && q.projectId != null) {
+    delete q.projectId
+    changed = true
+  }
+  if (changed) router.replace({ path: route.path, query: q })
+}
+
 watch(
   () => route.query.id,
   (id, prev) => {
@@ -701,7 +784,10 @@ watch(
   }
 )
 
-onMounted(() => loadSession(route.query.id))
+onMounted(async () => {
+  await loadSession(route.query.id)
+  applyHintFromQuery()
+})
 </script>
 
 <style scoped>
@@ -721,6 +807,23 @@ onMounted(() => loadSession(route.query.id))
   background: var(--color-body, #f5f5f5);
 }
 .page-container.session-chat.is-standalone .chat-shell {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+.page-container.session-chat.is-embed,
+.page-container.session-chat.is-embed.is-standalone {
+  /* 抽屉 iframe 内固定铺满视口，保证 flex 把输入框压到底部 */
+  position: fixed;
+  inset: 0;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  background: var(--color-surface);
+}
+.page-container.session-chat.is-embed .chat-shell {
+  grid-template-columns: minmax(0, 1fr);
   border-radius: 0;
   border: none;
   box-shadow: none;

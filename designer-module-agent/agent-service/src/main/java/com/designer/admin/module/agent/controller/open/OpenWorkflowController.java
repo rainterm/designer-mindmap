@@ -5,7 +5,6 @@ import com.designer.admin.module.agent.model.dto.workflow.WorkflowRunDTO;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowRunResult;
 import com.designer.admin.module.agent.model.vo.workflow.WorkflowVO;
 import com.designer.admin.module.agent.service.workflow.AgentWorkflowService;
-import com.designer.admin.module.agent.workflow.AgentWorkflowExecutor;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.noear.solon.annotation.Body;
@@ -35,8 +34,6 @@ public class OpenWorkflowController {
 
     @Inject
     private AgentWorkflowService workflowService;
-    @Inject
-    private AgentWorkflowExecutor workflowExecutor;
 
     @Get
     @Mapping("/list")
@@ -57,10 +54,9 @@ public class OpenWorkflowController {
     @ApiOperation(value = "执行工作流（同步整包结果）")
     public Result<WorkflowRunResult> run(@NotNull(message = "ID不能为空") Long id,
                                          @Body @Validated WorkflowRunDTO dto) {
-        workflowService.getPublishedById(id);
         Long agentId = dto == null ? null : dto.getAgentId();
         Map<String, Object> params = dto == null ? null : dto.getParams();
-        return Result.ok(workflowExecutor.run(id, params, agentId, null, false));
+        return Result.ok(workflowService.runPublished(id, params, agentId));
     }
 
     @Post
@@ -68,7 +64,6 @@ public class OpenWorkflowController {
     @ApiOperation(value = "执行工作流（SSE：status / step / delta / done / error，非 Result 包装）")
     public SseEmitter runStream(@NotNull(message = "ID不能为空") Long id,
                                 @Body @Validated WorkflowRunDTO dto) {
-        workflowService.getPublishedById(id);
         Long agentId = dto == null ? null : dto.getAgentId();
         Map<String, Object> params = dto == null ? null : dto.getParams();
         return workflowService.runPublishedStream(id, params, agentId);

@@ -22,7 +22,7 @@ import com.designer.admin.common.util.JsonUtil;
 import com.designer.admin.module.agent.constant.knowledge.KnowledgeDocStatus;
 import com.designer.admin.module.agent.constant.knowledge.KnowledgeSourceType;
 import com.designer.admin.module.agent.constant.session.AgentSseEvent;
-import com.designer.admin.module.agent.harness.AgentAsyncExecutor;
+import com.designer.admin.module.agent.util.AgentAsyncExecutor;
 import com.designer.admin.module.agent.mapper.knowledge.AgentKnowledgeDocMapper;
 import com.designer.admin.module.agent.mapper.knowledge.AgentKnowledgeMapper;
 import com.designer.admin.module.agent.mapper.provider.AgentProviderMapper;
@@ -48,10 +48,10 @@ import com.designer.admin.module.agent.service.knowledge.RagRetrieveOptions;
 import com.designer.admin.module.agent.service.knowledge.RagRetrieveResult;
 import com.designer.admin.module.agent.constant.AgentConsts;
 import com.designer.admin.module.agent.service.knowledge.AgentTextChunker;
-import com.designer.admin.module.agent.util.AgentEntitySupport;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentSseSupport;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.util.AgentEntityUtil;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import com.designer.admin.module.agent.util.AgentSseUtil;
+import org.noear.solon.Utils;
 
 /**
  * 知识库管理
@@ -79,7 +79,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
     @Override
     public IPage<KnowledgeVO> page(KnowledgeQueryDTO query) {
         IPage<AgentKnowledge> page = knowledgeMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentKnowledge>()
-                .and(AgentTexts.notBlank(query.getName()), w -> w
+                .and(Utils.isNotBlank(query.getName()), w -> w
                         .like(AgentKnowledge::getName, query.getName())
                         .or()
                         .like(AgentKnowledge::getCode, query.getName()))
@@ -168,7 +168,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
 
     @Override
     public KnowledgeVO save(KnowledgeSaveDTO dto) {
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             dto.setCode(nextKnowledgeCode());
         }
         validateKb(dto, null);
@@ -186,7 +186,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
             throw new BizException("知识库ID不能为空");
         }
         AgentKnowledge existing = requireKb(dto.getId());
-        if (!AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isBlank(dto.getCode())) {
             dto.setCode(existing.getCode());
         }
         validateKb(dto, dto.getId());
@@ -227,7 +227,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
             docMapper.delete(new LambdaQueryWrapper<AgentKnowledgeDoc>()
                     .eq(AgentKnowledgeDoc::getKnowledgeId, id));
         }
-        AgentEntitySupport.deleteBatchIds(knowledgeMapper, ids);
+        AgentEntityUtil.deleteBatchIds(knowledgeMapper, ids);
     }
 
     // ---------- docs ----------
@@ -239,14 +239,14 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
         }
         return docMapper.selectPage(query.toPage(), new LambdaQueryWrapper<AgentKnowledgeDoc>()
                 .eq(AgentKnowledgeDoc::getKnowledgeId, query.getKnowledgeId())
-                .and(AgentTexts.notBlank(query.getKeyword()), w -> w
+                .and(Utils.isNotBlank(query.getKeyword()), w -> w
                         .like(AgentKnowledgeDoc::getTitle, query.getKeyword())
                         .or()
                         .like(AgentKnowledgeDoc::getFileName, query.getKeyword())
                         .or()
                         .like(AgentKnowledgeDoc::getUrl, query.getKeyword()))
-                .eq(AgentTexts.notBlank(query.getStatus()), AgentKnowledgeDoc::getStatus, query.getStatus())
-                .eq(AgentTexts.notBlank(query.getSourceType()), AgentKnowledgeDoc::getSourceType, query.getSourceType())
+                .eq(Utils.isNotBlank(query.getStatus()), AgentKnowledgeDoc::getStatus, query.getStatus())
+                .eq(Utils.isNotBlank(query.getSourceType()), AgentKnowledgeDoc::getSourceType, query.getSourceType())
                 .orderByDesc(AgentKnowledgeDoc::getUpdateTime)
                 .orderByDesc(AgentKnowledgeDoc::getId))
                 .convert(this::toDocVo);
@@ -263,18 +263,18 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
             throw new BizException("知识库ID不能为空");
         }
         requireKb(dto.getKnowledgeId());
-        String sourceType = AgentTexts.notBlank(dto.getSourceType()) ? dto.getSourceType() : KnowledgeSourceType.TEXT.getCode();
-        if (KnowledgeSourceType.UPLOAD.eq(sourceType) && !AgentTexts.notBlank(dto.getUrl())) {
+        String sourceType = Utils.isNotBlank(dto.getSourceType()) ? dto.getSourceType() : KnowledgeSourceType.TEXT.getCode();
+        if (KnowledgeSourceType.UPLOAD.eq(sourceType) && Utils.isBlank(dto.getUrl())) {
             throw new BizException("请先上传原文件");
         }
-        if (KnowledgeSourceType.URL.eq(sourceType) && !AgentTexts.notBlank(dto.getUrl())) {
+        if (KnowledgeSourceType.URL.eq(sourceType) && Utils.isBlank(dto.getUrl())) {
             throw new BizException("请填写网页 URL");
         }
         String content = dto.getContent() == null ? "" : dto.getContent();
         int charCount = content.length() > 0 ? content.length()
                 : (dto.getCharCount() == null ? 0 : dto.getCharCount());
         boolean canIndex = !content.isBlank();
-        String status = AgentTexts.notBlank(dto.getStatus())
+        String status = Utils.isNotBlank(dto.getStatus())
                 ? dto.getStatus()
                 : KnowledgeDocStatus.PENDING.getCode();
 
@@ -283,7 +283,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
         doc.setTitle(firstNonBlank(dto.getTitle(), dto.getFileName(), AgentConsts.DOC_UNTITLED));
         doc.setSourceType(sourceType);
         doc.setFileName(dto.getFileName() == null ? "" : dto.getFileName());
-        doc.setFileType(AgentTexts.notBlank(dto.getFileType())
+        doc.setFileType(Utils.isNotBlank(dto.getFileType())
                 ? dto.getFileType()
                 : (KnowledgeSourceType.URL.eq(sourceType) ? KnowledgeSourceType.URL.getCode() : (KnowledgeSourceType.TEXT.eq(sourceType) ? KnowledgeSourceType.TEXT.getCode() : AgentConsts.FILE_TYPE_BIN)));
         doc.setFileSize(dto.getFileSize() == null ? 0L : dto.getFileSize());
@@ -350,7 +350,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
                 indexService.deleteDocVectors(doc.getKnowledgeId(), doc.getId());
             }
         }
-        AgentEntitySupport.deleteBatchIds(docMapper, ids);
+        AgentEntityUtil.deleteBatchIds(docMapper, ids);
     }
 
     @Override
@@ -402,8 +402,8 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
     private void runReindexStream(SseEmitter emitter, Long id, AtomicBoolean closed) {
         try {
             AgentKnowledgeDoc result = indexService.indexDoc(id, doc ->
-                    AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.PROGRESS.getCode(), JsonUtil.toJson(toProgressPayload(doc))));
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(toProgressPayload(result)));
+                    AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.PROGRESS.getCode(), JsonUtil.toJson(toProgressPayload(doc))));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(toProgressPayload(result)));
         } catch (Exception e) {
             log.warn("SSE 索引失败 docId={}: {}", id, e.getMessage());
             Map<String, Object> err = new LinkedHashMap<>();
@@ -412,7 +412,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
             if (doc != null) {
                 err.putAll(toProgressPayload(doc));
             }
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
         } finally {
             if (!closed.get()) {
                 try {
@@ -447,13 +447,13 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
     }
 
     private void validateKb(KnowledgeSaveDTO dto, Long excludeId) {
-        if (!AgentTexts.notBlank(dto.getName())) {
+        if (Utils.isBlank(dto.getName())) {
             throw new BizException("知识库名称不能为空");
         }
         if (dto.getEmbeddingProviderId() == null) {
             throw new BizException("请选择 Embedding 供应商");
         }
-        if (!AgentTexts.notBlank(dto.getEmbeddingModel())) {
+        if (Utils.isBlank(dto.getEmbeddingModel())) {
             throw new BizException("请选择 Embedding 模型");
         }
         AgentEmbeddingClient.assertOpenAiCompatEmbedding(dto.getEmbeddingModel().trim());
@@ -461,7 +461,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
         if (provider == null || provider.getStatus() == null || provider.getStatus() != SystemConsts.STATUS_ENABLE) {
             throw new BizException("Embedding 供应商不可用");
         }
-        if (AgentTexts.notBlank(dto.getCode())) {
+        if (Utils.isNotBlank(dto.getCode())) {
             Long cnt = knowledgeMapper.selectCount(new LambdaQueryWrapper<AgentKnowledge>()
                     .eq(AgentKnowledge::getCode, dto.getCode().trim())
                     .ne(excludeId != null, AgentKnowledge::getId, excludeId));
@@ -486,22 +486,22 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
     }
 
     private AgentKnowledge requireKb(Long id) {
-        return AgentEntitySupport.require(knowledgeMapper.selectById(id), "知识库不存在");
+        return AgentEntityUtil.require(knowledgeMapper.selectById(id), "知识库不存在");
     }
 
     private AgentKnowledgeDoc requireDoc(Long id) {
-        return AgentEntitySupport.require(docMapper.selectById(id), "文档不存在");
+        return AgentEntityUtil.require(docMapper.selectById(id), "文档不存在");
     }
 
     private AgentKnowledge toKbEntity(KnowledgeSaveDTO dto) {
         AgentKnowledge e = new AgentKnowledge();
         e.setId(dto.getId());
         e.setName(dto.getName().trim());
-        e.setCode(AgentTexts.notBlank(dto.getCode()) ? dto.getCode().trim() : "");
+        e.setCode(Utils.isNotBlank(dto.getCode()) ? dto.getCode().trim() : "");
         e.setDescription(dto.getDescription() == null ? "" : dto.getDescription());
-        e.setTagsJson(AgentJson.toJson(dto.getTags() == null ? List.of() : dto.getTags()));
+        e.setTagsJson(AgentJsonUtil.toJson(dto.getTags() == null ? List.of() : dto.getTags()));
         e.setEmbeddingProviderId(dto.getEmbeddingProviderId());
-        e.setEmbeddingModel(AgentTexts.notBlank(dto.getEmbeddingModel()) ? dto.getEmbeddingModel().trim() : "");
+        e.setEmbeddingModel(Utils.isNotBlank(dto.getEmbeddingModel()) ? dto.getEmbeddingModel().trim() : "");
         e.setEmbeddingDim(0);
         e.setChunkStrategy(AgentTextChunker.normalizeStrategy(dto.getChunkStrategy()));
         e.setChunkSize(dto.getChunkSize() == null ? AgentConsts.DEFAULT_CHUNK_SIZE : dto.getChunkSize());
@@ -572,7 +572,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
         vo.setName(e.getName());
         vo.setCode(e.getCode());
         vo.setDescription(e.getDescription());
-        vo.setTags(AgentJson.parseStringList(e.getTagsJson()));
+        vo.setTags(AgentJsonUtil.parseStringList(e.getTagsJson()));
         vo.setEmbeddingProviderId(e.getEmbeddingProviderId());
         vo.setEmbeddingModel(e.getEmbeddingModel());
         vo.setEmbeddingDim(e.getEmbeddingDim());
@@ -604,7 +604,7 @@ public class AgentKnowledgeServiceImpl implements AgentKnowledgeService {
 
     private static String firstNonBlank(String... values) {
         for (String v : values) {
-            if (AgentTexts.notBlank(v)) {
+            if (Utils.isNotBlank(v)) {
                 return v.trim();
             }
         }

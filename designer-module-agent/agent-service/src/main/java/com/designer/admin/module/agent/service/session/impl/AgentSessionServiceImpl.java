@@ -28,7 +28,8 @@ import com.designer.admin.common.util.JsonUtil;
 import com.designer.admin.framework.satoken.OperatorHelper;
 import com.designer.admin.module.agent.constant.session.AgentMessageRole;
 import com.designer.admin.module.agent.constant.session.AgentSseEvent;
-import com.designer.admin.module.agent.harness.AgentAsyncExecutor;
+import com.designer.admin.module.agent.harness.context.MmProjectChatContext;
+import com.designer.admin.module.agent.util.AgentAsyncExecutor;
 import com.designer.admin.module.agent.mapper.agent.AgentAgentMapper;
 import com.designer.admin.module.agent.mapper.session.AgentMessageMapper;
 import com.designer.admin.module.agent.mapper.session.AgentSessionMapper;
@@ -48,9 +49,9 @@ import com.designer.admin.module.agent.model.vo.session.SessionVO;
 import com.designer.admin.module.agent.service.agent.AgentAgentService;
 import com.designer.admin.module.agent.service.session.AgentChatService;
 import com.designer.admin.module.agent.service.session.AgentSessionService;
-import com.designer.admin.module.agent.util.AgentJson;
-import com.designer.admin.module.agent.util.AgentSseSupport;
-import com.designer.admin.module.agent.util.AgentTexts;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
+import com.designer.admin.module.agent.util.AgentSseUtil;
+import org.noear.solon.Utils;
 
 /**
  * 智能体会话
@@ -79,7 +80,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     public IPage<ChatRecordVO> page(SessionQueryDTO query) {
         List<ChatRecordVO> all = buildChatRecords();
         String kw = firstNonBlank(query.getTitle(), query.getKeyword());
-        if (AgentTexts.notBlank(kw)) {
+        if (Utils.isNotBlank(kw)) {
             String needle = kw.trim().toLowerCase();
             all = all.stream()
                     .filter(r -> contains(r.getQuestion(), needle) || contains(r.getAnswer(), needle))
@@ -162,7 +163,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         if (agentId == null) {
             throw new BizException("智能体ID不能为空");
         }
-        if (!AgentTexts.notBlank(owner)) {
+        if (Utils.isBlank(owner)) {
             return List.of();
         }
         return sessionMapper.selectList(new LambdaQueryWrapper<AgentSession>()
@@ -197,11 +198,11 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         }
         AgentSession session = new AgentSession();
         session.setAgentId(dto.getAgentId());
-        session.setTitle(AgentTexts.notBlank(dto.getTitle()) ? dto.getTitle().trim() : "新会话");
+        session.setTitle(Utils.isNotBlank(dto.getTitle()) ? dto.getTitle().trim() : "新会话");
         session.setMessageCount(0);
         session.setLastMessageAt(LocalDateTime.now());
         session.setStatus(SystemConsts.STATUS_ENABLE);
-        if (AgentTexts.notBlank(owner)) {
+        if (Utils.isNotBlank(owner)) {
             session.setCreateBy(owner.trim());
             session.setUpdateBy(owner.trim());
         }
@@ -212,7 +213,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     @Override
     public SessionVO requireOwned(Long sessionId, String owner) {
         AgentSession session = require(sessionId);
-        if (!AgentTexts.notBlank(owner) || !owner.trim().equals(session.getCreateBy())) {
+        if (Utils.isBlank(owner) || !owner.trim().equals(session.getCreateBy())) {
             throw new BizException("会话不存在或无权访问");
         }
         return toSessionVo(session);
@@ -227,7 +228,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     @Override
     @Transaction
     public void removeSessionsByOwner(List<Long> ids, String owner) {
-        if (ids == null || ids.isEmpty() || !AgentTexts.notBlank(owner)) {
+        if (ids == null || ids.isEmpty() || Utils.isBlank(owner)) {
             return;
         }
         List<AgentSession> sessions = sessionMapper.selectList(new LambdaQueryWrapper<AgentSession>()
@@ -301,15 +302,19 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         userMsg.setSessionId(sessionId);
         userMsg.setRole(AgentMessageRole.USER.getCode());
         userMsg.setContent(content);
-        userMsg.setAttachmentsJson(attachments.isEmpty() ? null : AgentJson.toJson(stripHeavy(attachments)));
+        userMsg.setAttachmentsJson(attachments.isEmpty() ? null : AgentJsonUtil.toJson(stripHeavy(attachments)));
         userMsg.setCreatedAt(now);
         messageMapper.insert(userMsg);
 
         String reply;
+        Long mmProjectId = dto == null ? null : dto.getMmProjectId();
         try {
+            MmProjectChatContext.setProjectId(mmProjectId);
             reply = chatService.chat(session, agent, content, attachments);
         } catch (Exception e) {
             reply = "对话失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        } finally {
+            MmProjectChatContext.clear();
         }
 
         AgentMessage assistantMsg = new AgentMessage();
@@ -332,12 +337,13 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         AgentAgent agent = resolveRuntimeAgent(session.getAgentId(), dto);
         String content = dto == null || dto.getContent() == null ? "" : dto.getContent();
         List<ChatAttachmentDTO> attachments = normalizeAttachments(agent, dto == null ? null : dto.getAttachments());
+        Long mmProjectId = dto == null ? null : dto.getMmProjectId();
 
         AgentMessage userMsg = new AgentMessage();
         userMsg.setSessionId(sessionId);
         userMsg.setRole(AgentMessageRole.USER.getCode());
         userMsg.setContent(content);
-        userMsg.setAttachmentsJson(attachments.isEmpty() ? null : AgentJson.toJson(stripHeavy(attachments)));
+        userMsg.setAttachmentsJson(attachments.isEmpty() ? null : AgentJsonUtil.toJson(stripHeavy(attachments)));
         userMsg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(userMsg);
 
@@ -349,7 +355,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
                 .onInited(s -> {
                     box[0] = s;
                     asyncExecutor.execute(
-                            () -> runStreamChat(s, session, agent, content, attachments, userMsg, closed));
+                            () -> runStreamChat(s, session, agent, content, attachments, userMsg, closed, mmProjectId));
                 });
         box[0] = emitter;
         return emitter;
@@ -373,9 +379,10 @@ public class AgentSessionServiceImpl implements AgentSessionService {
 
     private void runStreamChat(SseEmitter emitter, AgentSession session, AgentAgent agent,
                                String content, List<ChatAttachmentDTO> attachments,
-                               AgentMessage userMsg, AtomicBoolean closed) {
+                               AgentMessage userMsg, AtomicBoolean closed, Long mmProjectId) {
+        MmProjectChatContext.setProjectId(mmProjectId);
         try {
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.USER.getCode(), JsonUtil.toJson(toMessageVo(userMsg)));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.USER.getCode(), JsonUtil.toJson(toMessageVo(userMsg)));
 
             String reply;
             List<ChatToolCallDTO> tools = List.of();
@@ -389,13 +396,13 @@ public class AgentSessionServiceImpl implements AgentSessionService {
                         delta -> {
                             Map<String, Object> payload = new LinkedHashMap<>();
                             payload.put("delta", delta);
-                            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.DELTA.getCode(), JsonUtil.toJson(payload));
+                            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.DELTA.getCode(), JsonUtil.toJson(payload));
                         },
-                        tool -> AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.TOOL.getCode(), JsonUtil.toJson(tool)),
+                        tool -> AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.TOOL.getCode(), JsonUtil.toJson(tool)),
                         status -> {
                             Map<String, Object> payload = new LinkedHashMap<>();
                             payload.put("status", status);
-                            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.STATUS.getCode(), JsonUtil.toJson(payload));
+                            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.STATUS.getCode(), JsonUtil.toJson(payload));
                         },
                         thinking -> {
                             if (thinking != null && !thinking.isEmpty()) {
@@ -403,7 +410,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
                             }
                             Map<String, Object> payload = new LinkedHashMap<>();
                             payload.put("delta", thinking == null ? "" : thinking);
-                            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.THINKING.getCode(), JsonUtil.toJson(payload));
+                            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.THINKING.getCode(), JsonUtil.toJson(payload));
                         });
                 reply = streamResult.getContent();
                 tools = streamResult.getTools() == null ? List.of() : streamResult.getTools();
@@ -415,7 +422,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
                 assistantMsg.setSessionId(session.getId());
                 assistantMsg.setRole(AgentMessageRole.ASSISTANT.getCode());
                 assistantMsg.setContent(reply == null ? "" : reply);
-                assistantMsg.setToolsJson(tools.isEmpty() ? null : AgentJson.toJson(tools));
+                assistantMsg.setToolsJson(tools.isEmpty() ? null : AgentJsonUtil.toJson(tools));
                 assistantMsg.setThinking(thinkingText == null || thinkingText.isBlank() ? null : thinkingText);
                 assistantMsg.setCreatedAt(LocalDateTime.now());
                 messageMapper.insert(assistantMsg);
@@ -424,20 +431,20 @@ public class AgentSessionServiceImpl implements AgentSessionService {
                 SendMessageResult result = new SendMessageResult();
                 result.setUser(toMessageVo(userMsg));
                 result.setAssistant(toMessageVo(assistantMsg));
-                AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(result));
+                AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(result));
                 return;
             } catch (Exception e) {
                 reply = "对话失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
                 Map<String, Object> err = new LinkedHashMap<>();
                 err.put("msg", reply);
-                AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
+                AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
             }
 
             AgentMessage assistantMsg = new AgentMessage();
             assistantMsg.setSessionId(session.getId());
             assistantMsg.setRole(AgentMessageRole.ASSISTANT.getCode());
             assistantMsg.setContent(reply == null ? "" : reply);
-            assistantMsg.setToolsJson(tools.isEmpty() ? null : AgentJson.toJson(tools));
+            assistantMsg.setToolsJson(tools.isEmpty() ? null : AgentJsonUtil.toJson(tools));
             assistantMsg.setCreatedAt(LocalDateTime.now());
             messageMapper.insert(assistantMsg);
             touchSession(session, titleSeed(content, attachments), assistantMsg);
@@ -445,13 +452,14 @@ public class AgentSessionServiceImpl implements AgentSessionService {
             SendMessageResult result = new SendMessageResult();
             result.setUser(toMessageVo(userMsg));
             result.setAssistant(toMessageVo(assistantMsg));
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(result));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.DONE.getCode(), JsonUtil.toJson(result));
         } catch (Exception e) {
             log.error("流式对话失败 sessionId={}", session.getId(), e);
             Map<String, Object> err = new LinkedHashMap<>();
             err.put("msg", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-            AgentSseSupport.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
+            AgentSseUtil.safeSend(emitter, closed, AgentSseEvent.ERROR.getCode(), JsonUtil.toJson(err));
         } finally {
+            MmProjectChatContext.clear();
             if (!closed.get()) {
                 try {
                     emitter.complete();
@@ -471,7 +479,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         // 标题以首条用户提问为准；占位标题在首次对话后改写
         if (isPlaceholderTitle(session.getTitle())) {
             String firstQ = firstUserQuestion(session.getId());
-            String src = AgentTexts.notBlank(firstQ) ? firstQ : content;
+            String src = Utils.isNotBlank(firstQ) ? firstQ : content;
             session.setTitle(toSessionTitle(src));
         }
         sessionMapper.updateById(session);
@@ -487,14 +495,14 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     }
 
     private static boolean isPlaceholderTitle(String title) {
-        if (!AgentTexts.notBlank(title) || "新会话".equals(title)) {
+        if (Utils.isBlank(title) || "新会话".equals(title)) {
             return true;
         }
         return title.startsWith("对话 ·") || title.startsWith("调试 ·");
     }
 
     private static String toSessionTitle(String content) {
-        if (!AgentTexts.notBlank(content)) {
+        if (Utils.isBlank(content)) {
             return "新会话";
         }
         String t = content.trim().replaceAll("\\s+", " ");
@@ -602,7 +610,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     }
 
     private static List<ChatToolCallDTO> parseTools(String json) {
-        List<Map<String, Object>> rows = AgentJson.parseMapList(json);
+        List<Map<String, Object>> rows = AgentJsonUtil.parseMapList(json);
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -653,7 +661,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         }
         List<ChatAttachmentDTO> list = new ArrayList<>();
         for (ChatAttachmentDTO a : raw) {
-            if (a == null || !AgentTexts.notBlank(a.getUrl())) {
+            if (a == null || Utils.isBlank(a.getUrl())) {
                 continue;
             }
             ChatAttachmentDTO row = new ChatAttachmentDTO();
@@ -661,14 +669,14 @@ public class AgentSessionServiceImpl implements AgentSessionService {
             row.setUrl(a.getUrl().trim());
             row.setContentType(a.getContentType() == null ? "" : a.getContentType().trim());
             row.setSize(a.getSize() == null ? 0L : a.getSize());
-            if (AgentTexts.notBlank(a.getTextContent())) {
+            if (Utils.isNotBlank(a.getTextContent())) {
                 String text = a.getTextContent();
                 if (text.length() > 80_000) {
                     text = text.substring(0, 80_000) + "\n…(已截断)";
                 }
                 row.setTextContent(text);
             }
-            if (AgentTexts.notBlank(a.getBase64()) && a.getBase64().length() <= 4_000_000) {
+            if (Utils.isNotBlank(a.getBase64()) && a.getBase64().length() <= 4_000_000) {
                 row.setBase64(a.getBase64());
             }
             list.add(row);
@@ -680,7 +688,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     }
 
     private static List<ChatAttachmentDTO> parseAttachments(String json) {
-        List<Map<String, Object>> rows = AgentJson.parseMapList(json);
+        List<Map<String, Object>> rows = AgentJsonUtil.parseMapList(json);
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -705,10 +713,10 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     }
 
     private static String titleSeed(String content, List<ChatAttachmentDTO> attachments) {
-        if (AgentTexts.notBlank(content)) {
+        if (Utils.isNotBlank(content)) {
             return content;
         }
-        if (attachments != null && !attachments.isEmpty() && AgentTexts.notBlank(attachments.get(0).getName())) {
+        if (attachments != null && !attachments.isEmpty() && Utils.isNotBlank(attachments.get(0).getName())) {
             return attachments.get(0).getName();
         }
         return content;
@@ -746,10 +754,10 @@ public class AgentSessionServiceImpl implements AgentSessionService {
     }
 
     private static String firstNonBlank(String a, String b) {
-        if (AgentTexts.notBlank(a)) {
+        if (Utils.isNotBlank(a)) {
             return a;
         }
-        if (AgentTexts.notBlank(b)) {
+        if (Utils.isNotBlank(b)) {
             return b;
         }
         return null;

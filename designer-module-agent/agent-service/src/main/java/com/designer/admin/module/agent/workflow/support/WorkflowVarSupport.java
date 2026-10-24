@@ -1,7 +1,7 @@
 package com.designer.admin.module.agent.workflow.support;
 
 import com.designer.admin.module.agent.constant.AgentConsts;
-import com.designer.admin.module.agent.util.AgentJson;
+import com.designer.admin.module.agent.util.AgentJsonUtil;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,8 +16,10 @@ import java.util.regex.Pattern;
  */
 public final class WorkflowVarSupport {
 
+    /** 变量路径：root 或 root.path / root[0] */
     private static final Pattern VAR_PATH = Pattern.compile(
             "^([a-zA-Z_][a-zA-Z0-9_]*)((?:\\.[a-zA-Z_][a-zA-Z0-9_]*|\\[\\d+\\])*)$");
+    /** JSON 路径段：.field 或 [index] */
     private static final Pattern JSON_PATH_SEG = Pattern.compile("\\.([a-zA-Z_][a-zA-Z0-9_]*)|\\[(\\d+)]");
     /** 路径取值：{output.access_token}、{obj.field}、{var.items[0].id} */
     private static final Pattern JSON_PATH_PLACEHOLDER = Pattern.compile(
@@ -32,14 +34,21 @@ public final class WorkflowVarSupport {
     /** 标识符替换 ${name}，仅允许安全标识符字符 */
     private static final Pattern SQL_IDENTIFIER = Pattern.compile(
             "\\$\\{([a-zA-Z_][a-zA-Z0-9_]*)\\}");
+    /** SQL 标识符白名单正则 */
     private static final Pattern SAFE_IDENT = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
 
+    /** 工具类，禁止实例化。 */
     private WorkflowVarSupport() {
     }
 
     /**
      * 将 SQL 模板中的变量转为预编译参数：{@code {var}} / {@code '{var}'} → {@code ?}；
      * {@code ${ident}} 用于表名等标识符（白名单校验后直接替换）。
+     *
+     * @param template SQL 模板
+     * @param vars     变量表
+     * @return 绑定后的 SQL 与参数列表
+     * @throws IllegalArgumentException 标识符变量非法时抛出
      */
     public static BoundSql bindSql(String template, Map<String, String> vars) {
         if (template == null) {
@@ -79,6 +88,13 @@ public final class WorkflowVarSupport {
     public record BoundSql(String sql, List<Object> params) {
     }
 
+    /**
+     * 替换模板中的路径占位符与简单 {@code {key}} 变量。
+     *
+     * @param template 模板文本
+     * @param vars     变量表
+     * @return 替换后文本；template 为 null 时返回空串
+     */
     public static String applyVars(String template, Map<String, String> vars) {
         if (template == null) {
             return "";
@@ -111,6 +127,10 @@ public final class WorkflowVarSupport {
 
     /**
      * 解析条件/取值表达式：result.code、obj.field、{output.items[0].id}，以及字面量。
+     *
+     * @param expr 表达式
+     * @param vars 变量表
+     * @return 求值结果字符串
      */
     public static String evalPath(String expr, Map<String, String> vars) {
         if (expr == null) {
@@ -147,6 +167,13 @@ public final class WorkflowVarSupport {
         return readJsonPath(lookupJsonRoot(vars, root), path);
     }
 
+    /**
+     * 按根名查找 JSON 字符串；{@code obj} 回退到 output。
+     *
+     * @param vars 变量表
+     * @param root 根变量名
+     * @return JSON 文本；未找到时 null
+     */
     public static String lookupJsonRoot(Map<String, String> vars, String root) {
         if (vars != null && vars.containsKey(root)) {
             return vars.get(root);
@@ -157,6 +184,12 @@ public final class WorkflowVarSupport {
         return null;
     }
 
+    /**
+     * 判断字符串是否像 JSON 对象或数组。
+     *
+     * @param s 文本
+     * @return 是则 true
+     */
     public static boolean isJsonValue(String s) {
         if (s == null) {
             return false;
@@ -165,6 +198,13 @@ public final class WorkflowVarSupport {
         return (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
     }
 
+    /**
+     * 沿路径读取 JSON 字段或数组元素，结果转为字符串。
+     *
+     * @param json JSON 文本
+     * @param path 如 {@code .field} 或 {@code [0].id}
+     * @return 取值字符串；失败时空串
+     */
     public static String readJsonPath(String json, String path) {
         if (json == null || json.isBlank() || path == null || path.isBlank() || !isJsonValue(json)) {
             return "";
@@ -172,7 +212,7 @@ public final class WorkflowVarSupport {
         String t = json.trim();
         Object cur;
         try {
-            cur = t.startsWith("[") ? AgentJson.parseArray(t) : AgentJson.parseMap(t);
+            cur = t.startsWith("[") ? AgentJsonUtil.parseArray(t) : AgentJsonUtil.parseMap(t);
         } catch (Exception e) {
             return "";
         }
@@ -207,9 +247,15 @@ public final class WorkflowVarSupport {
         if (cur instanceof Number || cur instanceof Boolean) {
             return String.valueOf(cur);
         }
-        return AgentJson.toJson(cur);
+        return AgentJsonUtil.toJson(cur);
     }
 
+    /**
+     * 将路径拆为字段名 / 下标段列表。
+     *
+     * @param path 如 {@code .a[0].b}
+     * @return 段列表
+     */
     public static List<String> splitJsonPath(String path) {
         List<String> segs = new ArrayList<>();
         Matcher m = JSON_PATH_SEG.matcher(path);
@@ -219,7 +265,14 @@ public final class WorkflowVarSupport {
         return segs;
     }
 
-    /** 从上下文组装变量表（开始节点参数 + output） */
+    /**
+     * 从上下文组装变量表（开始节点参数 + output）。
+     *
+     * @param ctx       Flow 上下文
+     * @param outputKey 流水线输出键
+     * @param varsKey   入参 Map 键
+     * @return 变量表（含 output）
+     */
     public static Map<String, String> varsOf(org.noear.solon.flow.FlowContext ctx,
                                              String outputKey, String varsKey) {
         Map<String, String> vars = new LinkedHashMap<>();
@@ -235,17 +288,13 @@ public final class WorkflowVarSupport {
         return vars;
     }
 
-    public static Map<String, Object> parseCfg(String config) {
-        if (config == null || config.isBlank()) {
-            return Map.of();
-        }
-        String t = config.trim();
-        if (t.startsWith("{")) {
-            return AgentJson.parseMap(t);
-        }
-        return Map.of();
-    }
-
+    /**
+     * 转为字符串；null 或空白时返回默认值。
+     *
+     * @param o   任意对象
+     * @param def 默认值
+     * @return 字符串
+     */
     public static String str(Object o, String def) {
         if (o == null) {
             return def;
@@ -254,52 +303,13 @@ public final class WorkflowVarSupport {
         return s.isBlank() ? def : s;
     }
 
-    public static int intVal(Object o, int def) {
-        if (o instanceof Number n) {
-            return n.intValue();
-        }
-        if (o == null) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(String.valueOf(o).trim());
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static double doubleVal(Object o, double def) {
-        if (o instanceof Number n) {
-            return n.doubleValue();
-        }
-        if (o == null) {
-            return def;
-        }
-        try {
-            return Double.parseDouble(String.valueOf(o).trim());
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static Long longVal(Object o) {
-        if (o instanceof Number n) {
-            return n.longValue();
-        }
-        if (o == null) {
-            return null;
-        }
-        String s = String.valueOf(o).trim();
-        if (s.isEmpty()) {
-            return null;
-        }
-        try {
-            return Long.valueOf(s);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
+    /**
+     * 超长文本缩略，末尾加省略号。
+     *
+     * @param s   原文
+     * @param max 最大保留长度
+     * @return 缩略后文本
+     */
     public static String abbreviate(String s, int max) {
         if (s == null) {
             return "";
